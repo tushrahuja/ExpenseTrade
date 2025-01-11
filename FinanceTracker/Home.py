@@ -44,7 +44,7 @@ if "user" not in st.session_state:
 
 # Sidebar for navigation
 with st.sidebar:
-    st.image("https://via.placeholder.com/150", caption="App Logo", use_column_width=True)
+    st.image("Innova (1).png", caption="App Logo", use_container_width=True)
     st.title("User Authentication")
     if st.session_state["user"]:
         st.write(f"Logged in as *{st.session_state['user']}*")
@@ -90,12 +90,12 @@ if not st.session_state["user"]:
                     st.session_state["user"] = user[0]
                     st.session_state["username"] = user[1]
                     st.success(f"Welcome back, {user[0]}!")
-                    st.experimental_rerun()
+                    # st.experimental_rerun()
                 else:
                     st.error("Invalid username or password.")
 
     else:
-        st.header("Welcome to the Authentication App")
+        st.header("Welcome to the ExpenseTrade")
         st.write("Use the navigation menu on the left to sign up or log in.")
 
 else:
