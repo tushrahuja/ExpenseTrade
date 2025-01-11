@@ -44,7 +44,7 @@ if "user" not in st.session_state:
 
 # Sidebar for navigation
 with st.sidebar:
-    st.image("Innova (1).png", caption="App Logo", use_container_width=True)
+    st.image("expense.png", caption="App Logo", use_container_width=True)
     st.title("User Authentication")
     if st.session_state["user"]:
         st.write(f"Logged in as *{st.session_state['user']}*")
