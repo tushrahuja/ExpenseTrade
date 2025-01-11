@@ -90,7 +90,7 @@ if not st.session_state["user"]:
                     st.session_state["user"] = user[0]
                     st.session_state["username"] = user[1]
                     st.success(f"Welcome back, {user[0]}!")
-                    # st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("Invalid username or password.")
 
