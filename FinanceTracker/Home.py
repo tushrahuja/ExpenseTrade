@@ -58,7 +58,7 @@ with st.sidebar:
         st.write(f"Logged in as *{st.session_state['user']}*")
         if st.button("Logout"):
             st.session_state["user"] = None
-            st.experimental_rerun()
+            st.rerun()
     else:
         selected_action = option_menu(
             menu_title="Navigation",
