@@ -90,7 +90,7 @@ with tab1:
     st.title("Stock Prices")
 
     # List of company names and ticker symbols
-    excel_file = r"C:\CodingT\Hackathon 25\finance-tracker-main\FinanceTracker\Ticker_Company.xlsx"
+    excel_file = r"./FinanceTracker/Ticker_Company.xlsx"
     company_data = pd.read_excel(excel_file)
 
     # Extract company names and ticker symbols
