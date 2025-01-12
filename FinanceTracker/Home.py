@@ -1,9 +1,17 @@
 import streamlit as st
 import sqlite3
+import yfinance as yf
+import pandas as pd
+from datetime import datetime
+import calendar
 from streamlit_option_menu import option_menu
+import plotly.express as px
+import plotly.graph_objects as go
+import geocoder
+import requests
 
 # Set up page configuration
-st.set_page_config(page_title="User Authentication", page_icon="🔐", layout="centered")
+st.set_page_config(page_title="ExpenseTrade", page_icon="🔐", layout="wide")
 
 # Connect to SQLite database
 conn = sqlite3.connect('users.db', check_same_thread=False)
@@ -90,16 +98,20 @@ if not st.session_state["user"]:
                     st.session_state["user"] = user[0]
                     st.session_state["username"] = user[1]
                     st.success(f"Welcome back, {user[0]}!")
-                    st.rerun()
                 else:
                     st.error("Invalid username or password.")
 
     else:
-        st.header("Welcome to the ExpenseTrade")
+        st.header("Welcome to ExpenseTrade")
         st.write("Use the navigation menu on the left to sign up or log in.")
 
 else:
     st.header(f"Welcome, {st.session_state['user']}!")
-    st.write("You are now logged in.")
     st.subheader("Dashboard")
-    st.write("Here is where you can add features for logged-in users.")
+    st.write("You are now logged in.")
+    st.divider()
+
+    # Dashboard Content (Your previous dashboard logic goes here)
+    tab1, tab2, tab3 = st.tabs(["Stock Prices", "Finance Tracker", "My Dashboard"])
+    
+    # Copy your existing logic for tabs and dashboard here.
