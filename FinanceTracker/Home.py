@@ -7,6 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import joblib
 import plotly.express as px
+from streamlit_option_menu import option_menu
 
 # Set up page configuration
 st.set_page_config(page_title="ExpenseTrade", page_icon="🔐", layout="wide")
@@ -97,6 +98,7 @@ if "user" not in st.session_state:
     st.session_state["user"] = None
 
 # Sidebar for navigation
+# Sidebar for navigation
 with st.sidebar:
     st.image("expense.png", use_container_width=True)
     st.title("User Authentication")
@@ -106,7 +108,12 @@ with st.sidebar:
             st.session_state["user"] = None
             st.rerun()
     else:
-        selected_action = st.radio("Navigation", ["Home", "Sign Up", "Login"], index=0)
+        selected_action = option_menu(
+            menu_title="Navigation",
+            options=["Home", "Sign Up", "Login"],
+            icons=["house", "person-plus", "box-arrow-in-right"],
+            default_index=0,
+        )
 
 # Main Content
 if not st.session_state["user"]:
