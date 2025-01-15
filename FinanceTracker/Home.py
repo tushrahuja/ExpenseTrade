@@ -26,6 +26,25 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 conn.commit()
 
+# Create Expenses table if it doesn't exist
+expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
+expenses_cur = expenses_conn.cursor()
+expenses_cur.execute('''
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    amount REAL,
+    date DATE,
+    category TEXT,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+expenses_conn.commit()
+
+# Set default expense limit
+DEFAULT_EXPENSE_LIMIT = 500
+
 # Helper functions
 def register_user(name, username, email, password):
     try:
@@ -133,16 +152,12 @@ else:
     st.write("You are now logged in.")
     st.divider()
 
-    # Tabs for dashboard and adding expenses
-    tab1, tab2 = st.tabs(["Dashboard", "Add Expense"])
+    # Tabs for dashboard, adding expenses, and expense history
+    tab1, tab2, tab3 = st.tabs(["Dashboard", "Add Expense", "Expense History"])
 
     # Tab2: Add Expense
     with tab2:
         st.title("Add Expense")
-
-        # Connect to the expenses.db database
-        expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
-        expenses_cur = expenses_conn.cursor()
 
         with st.form("expense_form"):
             amount = st.number_input("Amount", min_value=0.0, step=0.01)
@@ -161,6 +176,8 @@ else:
             if submitted:
                 if not amount or not description:
                     st.error("Amount and Description are required.")
+                elif amount > DEFAULT_EXPENSE_LIMIT:
+                    st.error(f"Expense exceeds the limit of {DEFAULT_EXPENSE_LIMIT} INR.")
                 else:
                     try:
                         # Insert expense into the database
@@ -174,8 +191,64 @@ else:
                         st.success("Expense added successfully!")
                     except sqlite3.Error as e:
                         st.error(f"An error occurred: {e}")
-                    finally:
-                        expenses_conn.close()
+
+    # Tab3: Expense History
+    with tab3:
+        st.title("Expense History")
+
+        # Fetch expenses for the logged-in user
+        query = '''
+        SELECT id, amount, date, category, description
+        FROM expenses
+        WHERE owner = ?
+        '''
+        expenses = expenses_cur.execute(query, (st.session_state["username"],)).fetchall()
+
+        # Convert data to a pandas DataFrame
+        columns = ["ID", "Amount", "Date", "Category", "Description"]
+        expenses_df = pd.DataFrame(expenses, columns=columns)
+
+        # Sorting
+        sort_order = st.selectbox("Sort by:", ["Date (Newest First)", "Date (Oldest First)", "Amount (High to Low)", "Amount (Low to High)"])
+        if "Date" in sort_order:
+            expenses_df = expenses_df.sort_values(by="Date", ascending="Oldest" in sort_order)
+        elif "Amount" in sort_order:
+            expenses_df = expenses_df.sort_values(by="Amount", ascending="Low" in sort_order)
+
+        # Display paginated table
+        page_size = 5
+        total_pages = len(expenses_df) // page_size + (len(expenses_df) % page_size > 0)
+        page = st.number_input("Page", min_value=1, max_value=total_pages, step=1)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        st.table(expenses_df.iloc[start_idx:end_idx])
+
+        # Edit Expense
+        selected_expense_id = st.selectbox("Select Expense to Edit:", expenses_df["ID"])
+        if selected_expense_id:
+            expense_details = expenses_df[expenses_df["ID"] == selected_expense_id].iloc[0]
+
+            with st.form("edit_expense_form"):
+                st.write(f"Editing Expense ID: {selected_expense_id}")
+                amount = st.number_input("Amount", value=expense_details["Amount"], min_value=0.0, step=0.01)
+                category = st.text_input("Category", value=expense_details["Category"])
+                description = st.text_area("Description", value=expense_details["Description"])
+                expense_date = st.date_input("Date", value=datetime.strptime(expense_details["Date"], "%Y-%m-%d").date())
+
+                submitted = st.form_submit_button("Update Expense")
+                if submitted:
+                    try:
+                        update_query = '''
+                        UPDATE expenses
+                        SET amount = ?, date = ?, category = ?, description = ?
+                        WHERE id = ?
+                        '''
+                        expenses_cur.execute(update_query, (amount, expense_date, category, description, selected_expense_id))
+                        expenses_conn.commit()
+                        st.success("Expense updated successfully!")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"An error occurred: {e}")
 
     with tab1:
         st.title("My Dashboard")
