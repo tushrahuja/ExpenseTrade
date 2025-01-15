@@ -68,7 +68,7 @@ def login_user(username, password):
 @st.cache_resource
 def load_and_train_model():
     # Load dataset
-    df = pd.read_csv("C:\CodingT\ExpenseTrade\categories_dataset.csv")  # Replace with the actual path to your CSV file
+    df = pd.read_csv("categories_dataset.csv") 
 
     # Data preparation
     X = df['description']
@@ -103,7 +103,7 @@ with st.sidebar:
     st.image("expense.png", use_container_width=True)
     st.title("User Authentication")
     if st.session_state["user"]:
-        st.write(f"Logged in as *{st.session_state['user']}*")
+        st.write(f"Logged in as {st.session_state['user']}")
         if st.button("Logout"):
             st.session_state["user"] = None
             st.rerun()
