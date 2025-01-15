@@ -1,14 +1,12 @@
 import streamlit as st
 import sqlite3
-import yfinance as yf
 import pandas as pd
 from datetime import datetime
-import calendar
-from streamlit_option_menu import option_menu
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import joblib
 import plotly.express as px
-import plotly.graph_objects as go
-import geocoder
-import requests
 
 # Set up page configuration
 st.set_page_config(page_title="ExpenseTrade", page_icon="🔐", layout="wide")
@@ -46,6 +44,35 @@ def login_user(username, password):
     ''', (username, password))
     return cur.fetchone()
 
+# Load dataset and train model (once per session)
+@st.cache_resource
+def load_and_train_model():
+    # Load dataset
+    df = pd.read_csv("C:\CodingT\ExpenseTrade\categories_dataset.csv")  # Replace with the actual path to your CSV file
+
+    # Data preparation
+    X = df['description']
+    y = df['category']
+
+    # Text vectorization
+    vectorizer = TfidfVectorizer()
+    X_vec = vectorizer.fit_transform(X)
+
+    # Train/test split
+    X_train, X_test, y_train, y_test = train_test_split(X_vec, y, test_size=0.2, random_state=42)
+
+    # Train model
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+
+    # Save vectorizer and model for later use
+    joblib.dump(vectorizer, "vectorizer.pkl")
+    joblib.dump(model, "model.pkl")
+
+    return vectorizer, model
+
+vectorizer, model = load_and_train_model()
+
 # Initialize session state
 if "user" not in st.session_state:
     st.session_state["user"] = None
@@ -60,12 +87,7 @@ with st.sidebar:
             st.session_state["user"] = None
             st.rerun()
     else:
-        selected_action = option_menu(
-            menu_title="Navigation",
-            options=["Home", "Sign Up", "Login"],
-            icons=["house", "person-plus", "box-arrow-in-right"],
-            default_index=0,
-        )
+        selected_action = st.radio("Navigation", ["Home", "Sign Up", "Login"], index=0)
 
 # Main Content
 if not st.session_state["user"]:
@@ -108,56 +130,55 @@ if not st.session_state["user"]:
 
 else:
     st.header(f"Welcome, {st.session_state['user']}!")
-    
     st.write("You are now logged in.")
     st.divider()
 
-    # Dashboard Content
-    tabs = st.tabs(["My Dashboard"])
+    # Tabs for dashboard and adding expenses
+    tab1, tab2 = st.tabs(["Dashboard", "Add Expense"])
 
-    # My Dashboard Tab
-    with tabs[0]:
+    # Tab2: Add Expense
+    with tab2:
+        st.title("Add Expense")
+
+        # Connect to the expenses.db database
+        expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
+        expenses_cur = expenses_conn.cursor()
+
+        with st.form("expense_form"):
+            amount = st.number_input("Amount", min_value=0.0, step=0.01)
+            description = st.text_area("Description", placeholder="Enter expense details")
+            predicted_category = ""
+
+            if description:
+                description_vec = vectorizer.transform([description])
+                predicted_category = model.predict(description_vec)[0]
+
+            category = st.selectbox("Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"], index=0)
+            expense_date = st.date_input("Expense Date", max_value=datetime.now().date())
+
+            submitted = st.form_submit_button("Add Expense")
+
+            if submitted:
+                if not amount or not description:
+                    st.error("Amount and Description are required.")
+                else:
+                    try:
+                        # Insert expense into the database
+                        query = '''
+                        INSERT INTO expenses (owner, amount, date, category, description)
+                        VALUES (?, ?, ?, ?, ?)
+                        '''
+                        expenses_cur.execute(query, (st.session_state["username"], amount, expense_date, category, description))
+                        expenses_conn.commit()
+
+                        st.success("Expense added successfully!")
+                    except sqlite3.Error as e:
+                        st.error(f"An error occurred: {e}")
+                    finally:
+                        expenses_conn.close()
+
+    with tab1:
         st.title("My Dashboard")
-
-        # Function to get user's location based on IP address
-        def get_user_location():
-            ip = geocoder.ip('me').ip
-            location = geocoder.ip(ip)
-            return location
-
-        # Function to fetch weather data from OpenWeatherMap API
-        def get_weather(city, api_key):
-            url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-            response = requests.get(url)
-            data = response.json()
-            return data
-
-        def get_icon_url(icon_code):
-            return f"http://openweathermap.org/img/wn/{icon_code}.png"
-
-        # Weather Section
-        location = get_user_location()
-        if location:
-            api_key = "8bdbd2e318823265106ee07bf92c3007"
-            weather_data = get_weather(location.city, api_key)
-
-            if weather_data["cod"] == 200:
-                icon_code = weather_data['weather'][0]['icon']
-                icon_url = get_icon_url(icon_code)
-
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    st.image(icon_url)
-                with col2:
-                    st.write(f"🌤️ {weather_data['main']['temp']}°C with {weather_data['weather'][0]['description']}")
-                with col3:
-                    st.write(f"📍 {location.city}")
-
-            else:
-                st.write("Error fetching weather data. Please try again.")
-        else:
-            st.write("Error fetching location. Please try again.")
 
         # Finance Data
         username = st.session_state["username"]
