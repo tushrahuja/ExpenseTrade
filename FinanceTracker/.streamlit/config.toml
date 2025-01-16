@@ -13,3 +13,6 @@ gatherUsageStats = false
 
 [ui]
 hideStreamlitMark = false
+
+[ui]
+hide_menu_items = "Deploy this app"
