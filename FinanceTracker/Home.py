@@ -253,7 +253,7 @@ else:
                         expenses_cur.execute(update_query, (amount, expense_date, category, description, selected_expense_id))
                         expenses_conn.commit()
                         st.success("Expense updated successfully!")
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"An error occurred: {e}")
 
