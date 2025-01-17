@@ -21,6 +21,8 @@ if "user" not in st.session_state:
     st.session_state["user"] = None
 if "username" not in st.session_state:
     st.session_state["username"] = None
+if "email" not in st.session_state:
+    st.session_state["email"] = ""  # Default to empty string
 
 # Helper functions
 def execute_with_retry(conn, query, params=()):
@@ -46,16 +48,26 @@ def execute_with_retry(conn, query, params=()):
                 pass
     raise sqlite3.OperationalError("Database is locked after multiple retries.")
 
+def get_user_email(username):
+    """Fetch the email of the logged-in user from the database."""
+    query = "SELECT email FROM users WHERE username = ?"
+    cur = users_conn.cursor()
+    try:
+        result = cur.execute(query, (username,)).fetchone()
+        return result[0] if result else ""  # Return email or empty string if not found
+    finally:
+        cur.close()
+
 def get_sources(owner):
     """
     Fetch income sources for a given owner.
     """
     query = "SELECT id, name FROM sources WHERE owner = ?"
-    cur = income_conn.cursor()  # Open the cursor manually
+    cur = income_conn.cursor()
     try:
         return cur.execute(query, (owner,)).fetchall()
     finally:
-        cur.close()  # Explicitly close the cursor
+        cur.close()
 
 def edit_source(source_id, new_name):
     """
@@ -112,6 +124,7 @@ def update_user(name, username, email, new_password, old_username):
         users_conn.commit()
         st.session_state["user"] = name
         st.session_state["username"] = username
+        st.session_state["email"] = email  # Update email in session state
     finally:
         cur.close()
 
@@ -122,6 +135,13 @@ def profile_page():
         return
 
     owner = st.session_state["username"]
+
+    # Fetch email from the database if it's not already set
+    if not st.session_state.get("email"):
+        fetched_email = get_user_email(owner)
+        if fetched_email:
+            st.session_state["email"] = fetched_email  # Store the email in session state
+
     st.title(f"Welcome, {st.session_state['user']}!")
     st.header("User Profile")
 
@@ -130,8 +150,8 @@ def profile_page():
     with st.form("edit_profile_form"):
         name = st.text_input("Full Name", value=st.session_state["user"])
         username = st.text_input("Username", value=st.session_state["username"])
-        email = st.text_input("Email")
-        old_password = st.text_input("Current Password", type="password")  # Old password for verification
+        email = st.text_input("Email", value=st.session_state["email"])  # Ensure this is pre-filled
+        old_password = st.text_input("Current Password", type="password")
         new_password = st.text_input("New Password", type="password")
         submitted = st.form_submit_button("Update Profile")
 
