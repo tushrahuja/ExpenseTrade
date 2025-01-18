@@ -10,6 +10,7 @@ from streamlit_option_menu import option_menu
 import plotly.express as px
 
 
+
 # Set up page configuration
 st.set_page_config(page_title="ExpenseTrade", page_icon="\U0001F512", layout="wide")
 
@@ -27,6 +28,19 @@ CREATE TABLE IF NOT EXISTS users (
 )
 ''')
 conn.commit()
+expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
+expenses_cur = expenses_conn.cursor()
+cur.execute('''
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    goal_amount REAL,
+    saved_amount REAL DEFAULT 0.0,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+expenses_conn.commit()
 
 # Create Expenses table if it doesn't exist
 expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
@@ -38,6 +52,19 @@ CREATE TABLE IF NOT EXISTS expenses (
     amount REAL,
     date DATE,
     category TEXT,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+expenses_conn.commit()
+
+# Create Goals table if it doesn't exist
+expenses_cur.execute('''
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    goal_amount REAL,
+    saved_amount REAL DEFAULT 0.0,
     description TEXT,
     FOREIGN KEY (owner) REFERENCES users(username)
 )
@@ -160,7 +187,67 @@ else:
     st.divider()
 
     # Tabs for dashboard, adding expenses, and expense history
-    tab1, tab2, tab3 = st.tabs(["Dashboard", "Add Expense", "Expense History"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Dashboard", "Add Expense", "Expense History", "Goals"])
+     # Tab 4: Goals
+    with tab4:
+        st.title("My Savings Goals")
+        
+        # View Goals
+        view_goals_query = '''
+        SELECT id, goal_amount, saved_amount, description FROM goals WHERE owner = ?
+        '''
+        goals = expenses_cur.execute(view_goals_query, (st.session_state["username"],)).fetchall()
+
+        if goals:
+            for goal in goals:
+                st.write(f"Goal Description: {goal[3]}")
+                st.write(f"Target Amount: {goal[1]} INR")
+                st.write(f"Amount Saved: {goal[2]} INR")
+                progress = (goal[2] / goal[1]) * 100 if goal[1] != 0 else 0
+                st.progress(progress)
+
+                # Update saved amount for a goal
+                with st.form(f"update_goal_{goal[0]}"):
+                    new_saved_amount = st.number_input("Update Saved Amount", min_value=0.0, value=goal[2], max_value=goal[1], step=0.01)
+                    submit_button = st.form_submit_button("Update Goal")
+
+                    if submit_button:
+                        update_query = '''
+                        UPDATE goals
+                        SET saved_amount = ?
+                        WHERE id = ?
+                        '''
+                        expenses_cur.execute(update_query, (new_saved_amount, goal[0]))
+                        expenses_conn.commit()
+                        st.success("Goal updated successfully!")
+                        st.rerun()
+
+        else:
+            st.write("No goals set yet. Add a new goal below.")
+
+        # Add New Goal
+        with st.form("add_goal_form"):
+            goal_amount = st.number_input("Goal Amount", min_value=0.0, step=0.01)
+            goal_description = st.text_area("Goal Description", placeholder="Enter your savings goal description")
+            
+            if st.form_submit_button("Set Goal"):
+                if goal_amount <= 0:
+                    st.error("Goal amount must be greater than zero.")
+                elif not goal_description:
+                    st.error("Please provide a description for your goal.")
+                else:
+                    try:
+                        insert_goal_query = '''
+                        INSERT INTO goals (owner, goal_amount, description)
+                        VALUES (?, ?, ?)
+                        '''
+                        expenses_cur.execute(insert_goal_query, (st.session_state["username"], goal_amount, goal_description))
+                        expenses_conn.commit()
+                        st.success("Goal set successfully!")
+                        st.rerun()
+                    except sqlite3.Error as e:
+                        st.error(f"An error occurred: {e}")
+
 
     # Tab2: Add Expense
     with tab2:
