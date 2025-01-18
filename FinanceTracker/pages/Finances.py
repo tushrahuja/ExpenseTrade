@@ -7,80 +7,92 @@ import calendar
 from streamlit_option_menu import option_menu
 import plotly.express as px
 
-import plotly.graph_objects as go
-
-import geocoder
-import requests
-
-
-st.set_page_config(layout ="wide")
+st.set_page_config(layout="wide")
 
 # Ensure the user is logged in
 if "user" not in st.session_state or st.session_state["user"] is None:
     st.warning("Please log in to access this page.")
     st.stop()
 
-# Connect to SQLite database
-conn = sqlite3.connect('data.db', check_same_thread=False)
-cur = conn.cursor()
+# Connect to SQLite databases
+expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
+expenses_cur = expenses_conn.cursor()
 
-# Check if the finance_data table already exists and has the correct columns
-cur.execute("PRAGMA table_info(finance_data)")
-columns = [col[1] for col in cur.fetchall()]
+income_conn = sqlite3.connect('income.db', check_same_thread=False)
+income_cur = income_conn.cursor()
 
-if 'username' not in columns:
-    # Rename the finance_data table to new_finance_data
-    cur.execute("ALTER TABLE finance_data RENAME TO new_finance_data")
-    conn.commit()
+# Create expenses and income tables if they don't exist
+expenses_cur.execute('''
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    date DATE,
+    amount REAL,
+    category TEXT,
+    description TEXT
+)
+''')
+expenses_conn.commit()
 
-    # Create the finance_data table with the correct columns
-    cur.execute('''
-    CREATE TABLE IF NOT EXISTS finance_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        period TEXT,
-        type TEXT,
-        category TEXT,
-        amount INTEGER,
-        remarks TEXT
-    )
-    ''')
-    conn.commit()
+income_cur.execute('''
+CREATE TABLE IF NOT EXISTS income (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    date DATE,
+    amount REAL,
+    source INTEGER,
+    description TEXT,
+    FOREIGN KEY (source) REFERENCES sources (id)
+)
+''')
+income_cur.execute('''
+CREATE TABLE IF NOT EXISTS sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    owner TEXT
+)
+''')
+income_conn.commit()
 
-    # Transfer data to the new table
-    cur.execute('''
-    INSERT INTO finance_data (username, period, type, category, amount, remarks)
-    SELECT username, period, type, category, amount, remarks FROM new_finance_data
-    ''')
-    conn.commit()
+# Add or update income and expense data
+def add_or_update_income(owner, date, amount, source, description):
+    income_cur.execute('''
+        INSERT INTO income (owner, date, amount, source, description)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (owner, date, amount, source, description))
+    income_conn.commit()
 
-    # Drop the temporary table
-    cur.execute("DROP TABLE new_finance_data")
-    conn.commit()
+def add_or_update_expense(owner, date, amount, category, description):
+    expenses_cur.execute('''
+        INSERT INTO expenses (owner, date, amount, category, description)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (owner, date, amount, category, description))
+    expenses_conn.commit()
 
-# Function to add data
-# Function to add or update data
-def addOrUpdateData(username, period, category, amount, remarks, data_type):
-    # Check if data already exists for the given period and category
-    existing_data = cur.execute("SELECT id FROM finance_data WHERE username = ? AND period = ? AND category = ? AND type = ?", 
-                                (username, period, category, data_type)).fetchone()
-    if existing_data:
-        # Update existing data
-        cur.execute('''
-            UPDATE finance_data 
-            SET amount = ?, remarks = ?
-            WHERE id = ?
-            ''', (amount, remarks, existing_data[0]))
-    else:
-        # Add new data
-        cur.execute('''
-            INSERT INTO finance_data (username, period, type, category, amount, remarks)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (username, period, data_type, category, amount, remarks))
-    conn.commit()
+# Fetch sources for income
+def get_sources(owner):
+    income_cur.execute("SELECT id, name FROM sources WHERE owner = ?", (owner,))
+    return income_cur.fetchall()
 
+# Fetch income and expense data
+def get_income_data(owner, period):
+    formatted_period = period.replace("_", "-")  # Convert period to YYYY-MM format
+    income_cur.execute('''
+        SELECT i.amount, s.name AS source, i.date, i.description 
+        FROM income i 
+        JOIN sources s ON i.source = s.id 
+        WHERE i.owner = ? AND strftime('%Y-%m', i.date) = ?''', (owner, formatted_period))
+    return income_cur.fetchall()
 
-# Get the logged-in user's usernamea
+def get_expense_data(owner, period):
+    formatted_period = period.replace("_", "-")  # Convert period to YYYY-MM format
+    expenses_cur.execute('''
+        SELECT amount, category, date, description 
+        FROM expenses 
+        WHERE owner = ? AND strftime('%Y-%m', date) = ?''', (owner, formatted_period))
+    return expenses_cur.fetchall()
+
+# Get the logged-in user's username
 username = st.session_state["username"]
 
 # Create tabs
@@ -88,46 +100,32 @@ tab1, tab2 = st.tabs(["Stock Prices", "Finance Tracker"])
 
 with tab1:
     st.title("Stock Prices")
-
-    # List of company names and ticker symbols
     excel_file = r"./FinanceTracker/Ticker_Company.xlsx"
     company_data = pd.read_excel(excel_file)
 
-    # Extract company names and ticker symbols
     company_names = company_data["Company_Name"].tolist()
     ticker_symbols = company_data["Symbol"].tolist()
 
-    # Dropdown menu for selecting a company
     selected_company = st.selectbox("Select a Company", company_names)
-
-    # Find the corresponding ticker symbol
     selected_ticker_symbol = ticker_symbols[company_names.index(selected_company)]
 
     st.write("Selected Ticker Symbol:", selected_ticker_symbol)
 
     if selected_ticker_symbol:
-        # Retrieve historical data for selected stock
         tickerData = yf.Ticker(selected_ticker_symbol)
         tickerDf = tickerData.history(period='1d', start='2024-01-01', end=datetime.today())
-        high_low_data = tickerDf[['High', 'Low']]
 
-        # Check if data is available for the entered symbol
         if not tickerDf.empty:
-            # Display line charts for closing prices and volume
-            st.write(f"Stock Data for {selected_ticker_symbol}:")
-            st.line_chart(tickerDf.Close, color="#03fc88")
-            st.caption('Chart for Closing prices.')
-            st.divider()
-            st.line_chart(tickerDf.Volume, color="#fc0356")
+            st.line_chart(tickerDf.Close)
+            st.caption('Chart for Closing Prices.')
+            st.line_chart(tickerDf.Volume)
             st.caption('Chart for Stock Volume.')
-            st.bar_chart(high_low_data)
-            st.caption('Chart for High Vs Low of Stock Prices.')
         else:
-            st.warning("No data available for the entered symbol. Please enter a valid stock ticker symbol.")
+            st.warning("No data available for the entered symbol. Please try again.")
 
 with tab2:
     st.title("Income and Expense Tracker")
-    incomes = ["Salary", "Stocks", "Other Income"]
+    incomes = get_sources(username)
     expenses = ["Rent", "Utilities", "Groceries", "Car", "Insurance", "Savings", "Miscellaneous"]
     currency = "INR"
 
@@ -148,79 +146,101 @@ with tab2:
 
             with st.expander("Income"):
                 for income in incomes:
-                    st.number_input(f"{income}:", min_value=0, format="%i", step=100, key=income)
+                    st.number_input(f"{income[1]}:", min_value=0, format="%i", step=100, key=f"income_{income[0]}")
             with st.expander("Expenses"):
                 for expense in expenses:
-                    st.number_input(f"{expense}:", min_value=0, format="%i", step=100, key=expense)
+                    st.number_input(f"{expense}:", min_value=0, format="%i", step=100, key=f"expense_{expense}")
             with st.expander("Remarks"):
                 comment = st.text_area("", placeholder="Enter Remarks")
-            
 
             submitted = st.form_submit_button("Save Data")
-        
+
             if submitted:
                 period = f"{year}_{month}"
                 for income in incomes:
-                    addOrUpdateData(username, period, income, st.session_state[income], comment, 'Income')
+                    amount = st.session_state[f"income_{income[0]}"]
+                    if amount > 0:
+                        add_or_update_income(username, f"{year}-{str(month).zfill(2)}-01", amount, income[0], comment)
+
                 for expense in expenses:
-                    addOrUpdateData(username, period, expense, st.session_state[expense], comment, 'Expense')
+                    amount = st.session_state[f"expense_{expense}"]
+                    if amount > 0:
+                        add_or_update_expense(username, f"{year}-{str(month).zfill(2)}-01", amount, expense, comment)
+
                 st.success("Data Saved")
 
     elif selected == "Data Visualization":
         st.header("Data Visualization")
-        periods = cur.execute("SELECT DISTINCT period FROM finance_data WHERE username = ?", (username,)).fetchall()
-        periods = [period[0] for period in periods]
+
+        # Fetch unique months with income or expenses
+        income_periods = income_cur.execute(
+            "SELECT DISTINCT strftime('%Y-%m', date) FROM income WHERE owner = ?",
+            (username,)
+        ).fetchall()
+        expense_periods = expenses_cur.execute(
+            "SELECT DISTINCT strftime('%Y-%m', date) FROM expenses WHERE owner = ?",
+            (username,)
+        ).fetchall()
+
+        # Combine and sort unique periods
+        periods = sorted(set([p[0] for p in income_periods] + [p[0] for p in expense_periods]))
 
         with st.form("saved_periods"):
-            period = st.selectbox("Select Period:", periods)
+            selected_period = st.selectbox("Select Period (YYYY-MM):", periods)
             submitted = st.form_submit_button("Plot Period")
 
             if submitted:
-                income_data = cur.execute("SELECT category, amount FROM finance_data WHERE period = ? AND type = 'Income' AND username = ?", (period, username)).fetchall()
-                expense_data = cur.execute("SELECT category, amount FROM finance_data WHERE period = ? AND type = 'Expense' AND username = ?", (period, username)).fetchall()
+                # Adjust the date range for the entire selected month
+                start_date = f"{selected_period}-01"
+                end_date = f"{selected_period}-{calendar.monthrange(int(selected_period[:4]), int(selected_period[5:7]))[1]}"
 
-                incomes = {data[0]: data[1] for data in income_data}
-                expenses = {data[0]: data[1] for data in expense_data}
+                # Fetch all income and expenses for the month
+                income_cur.execute('''
+                    SELECT i.amount, i.source, i.date, i.description 
+                    FROM income i 
+                    WHERE i.owner = ? AND i.date BETWEEN ? AND ?
+                ''', (username, start_date, end_date))
+                income_data = income_cur.fetchall()
 
+                expenses_cur.execute('''
+                    SELECT amount, category, date, description 
+                    FROM expenses 
+                    WHERE owner = ? AND date BETWEEN ? AND ?
+                ''', (username, start_date, end_date))
+                expense_data = expenses_cur.fetchall()
+
+                # Process fetched data
+                incomes = {data[1]: data[0] for data in income_data}  # Source: Amount
+                expenses = {data[1]: data[0] for data in expense_data}  # Category: Amount
+
+                # Calculate total income, expenses, and remaining balance
                 total_income = sum(incomes.values())
                 total_expense = sum(expenses.values())
                 remaining = total_income - total_expense
 
+                # Display metrics
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Total Income:", "{:,} {}".format(total_income, currency))
-                col2.metric("Total Expense:", "{:,} {}".format(total_expense, currency))
-                col3.metric("Total Remaining:", "{:,} {}".format(remaining, currency))
+                col1.metric("Total Income:", f"{total_income:,} {currency}")
+                col2.metric("Total Expense:", f"{total_expense:,} {currency}")
+                col3.metric("Total Remaining:", f"{remaining:,} {currency}")
 
-
-                income_df = pd.DataFrame.from_dict(incomes, orient='index', columns=['Amount'])
-                expense_df = pd.DataFrame.from_dict(expenses, orient='index', columns=['Amount'])
-
-                # Define custom color palette
-                neon_pink_palette = ['#FF005E', '#F30476', '#E7098E', '#DC0DA6', '#D011BD', '#C416D5', '#B81AED', '#4361ee', '#4895ef', '#4cc9f0']
-                neon_green_palette = ['#2b9348', '#3eaf7c', '#57cc99', '#64dfdf', '#72efdd', '#64dfdf', '#72efdd', '#64dfdf', '#50c9c3', '#40b3a2']
-
+                # Prepare dataframes for visualization
                 income_df = pd.DataFrame.from_dict(incomes, orient='index', columns=['Amount']).reset_index()
+                income_df.rename(columns={'index': 'Source'}, inplace=True)
+
                 expense_df = pd.DataFrame.from_dict(expenses, orient='index', columns=['Amount']).reset_index()
-
-                # Add a column to indicate the type (income or expense)
-                income_df['Type'] = 'Income'
-                expense_df['Type'] = 'Expense'
-
-                # Concatenate dataframes
-                combined_df = pd.concat([income_df, expense_df])
+                expense_df.rename(columns={'index': 'Category'}, inplace=True)
 
                 # Plot pie charts for income and expenses
-                fig1 = px.pie(income_df, values='Amount', names='index', title="Income Breakdown", color_discrete_sequence=neon_green_palette)
-                fig1.update_traces(textposition='inside', textinfo='percent+label')
+                fig1 = px.pie(income_df, values='Amount', names='Source', title="Income Breakdown")
+                fig2 = px.pie(expense_df, values='Amount', names='Category', title="Expense Breakdown")
 
-                fig2 = px.pie(expense_df, values='Amount', names='index', title="Expense Breakdown", color_discrete_sequence=neon_pink_palette)
-                fig2.update_traces(textposition='inside', textinfo='percent+label')
-
-                # Display charts
                 st.plotly_chart(fig1)
                 st.plotly_chart(fig2)
 
+                # Display detailed tables
+                st.subheader("Detailed Income Data")
                 st.table(income_df)
+
+                st.subheader("Detailed Expense Data")
                 st.table(expense_df)
-
-

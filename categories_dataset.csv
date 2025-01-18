@@ -1,4 +1,5 @@
 description,category,clean_description
+petrol,fuel,petrol
 banana,food,banana
 biscuit,food,biscuit
 books,education,books
@@ -206,5 +207,4 @@ purchased cricket bat,sports,purchased cricket bat
 purchased groceries,groceries,purchased groceries
 purchased fruit and vegetables,food,purchased fruit vegetables
 haircut,personal care,haircut
-petrol,fuel,petrol
 tshirt, shopping, shopping
