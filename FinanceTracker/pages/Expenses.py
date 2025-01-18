@@ -22,29 +22,27 @@ income_conn = sqlite3.connect('income.db', check_same_thread=False)
 income_cur = income_conn.cursor()
 
 # Create Expenses table if it doesn't exist
-expenses_cur.execute('''
-CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner TEXT,
-    amount REAL,
-    date DATE,
-    category TEXT,
-    description TEXT
-)
-''')
+expenses_cur.execute(''' 
+CREATE TABLE IF NOT EXISTS expenses ( 
+    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+    owner TEXT, 
+    amount REAL, 
+    date DATE, 
+    category TEXT, 
+    description TEXT 
+) ''')
 expenses_conn.commit()
 
 # Create Income table if it doesn't exist
-income_cur.execute('''
-CREATE TABLE IF NOT EXISTS income (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner TEXT,
-    amount REAL,
-    date DATE,
-    source TEXT,
-    description TEXT
-)
-''')
+income_cur.execute(''' 
+CREATE TABLE IF NOT EXISTS income ( 
+    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+    owner TEXT, 
+    amount REAL, 
+    date DATE, 
+    source TEXT, 
+    description TEXT 
+) ''')
 income_conn.commit()
 
 # Set default expense limit
@@ -149,6 +147,7 @@ def main():
         elif menu_action == "Edit Expense":
             st.subheader("Edit Expense")
 
+            # Fetch all expenses for the logged-in user
             query = '''
             SELECT id, amount, date, category, description
             FROM expenses
@@ -159,43 +158,48 @@ def main():
             if not expenses:
                 st.warning("No expenses available to edit.")
             else:
-                # Convert data to a pandas DataFrame
-                columns = ["ID", "Amount", "Date", "Category", "Description"]
-                expenses_df = pd.DataFrame(expenses, columns=columns)
+                # Display expenses with their IDs in a select box for editing
+                expense_ids = [f"Sr No: {i+1} - {exp[4]} ({exp[1]} INR)" for i, exp in enumerate(expenses)]
+                expense_ids_map = {f"Sr No: {i+1} - {exp[4]} ({exp[1]} INR)": exp[0] for i, exp in enumerate(expenses)}
 
-                # Add serial numbers
-                expenses_df["Sr No"] = range(1, len(expenses_df) + 1)
-                display_df = expenses_df.drop(columns=["ID"])
-                display_df = display_df[["Sr No", "Amount", "Date", "Category", "Description"]]
+                selected_expense_sr_no = st.selectbox("Select Expense to Edit", expense_ids)
 
-                st.table(display_df)
+                if selected_expense_sr_no:
+                    # Get the corresponding expense ID using Sr No
+                    expense_id = expense_ids_map[selected_expense_sr_no]
 
-                sr_no_to_edit = st.number_input("Enter SR No to Edit:", min_value=1, max_value=len(display_df), step=1)
-                selected_expense = expenses_df.iloc[sr_no_to_edit - 1]
+                    # Get the selected expense's details from the database
+                    expense_details = expenses_cur.execute(
+                        "SELECT amount, date, category, description FROM expenses WHERE id = ?", (expense_id,)
+                    ).fetchone()
 
-                with st.form("edit_expense_form"):
-                    amount = st.number_input("Amount", value=selected_expense["Amount"], min_value=0.0, step=0.01)
-                    category = st.text_input("Category", value=selected_expense["Category"])
-                    description = st.text_area("Description", value=selected_expense["Description"])
-                    expense_date = st.date_input("Date", value=datetime.strptime(selected_expense["Date"], "%Y-%m-%d").date())
+                    if expense_details:
+                        amount, expense_date, category, description = expense_details
 
-                    submitted = st.form_submit_button("Update Expense")
+                        with st.form("edit_expense_form"):
+                            # Fill in the current values in the form fields
+                            amount = st.number_input("Amount", value=amount, min_value=0.0, step=0.01)
+                            category = st.text_input("Category", value=category)
+                            description = st.text_area("Description", value=description)
+                            expense_date = st.date_input("Date", value=datetime.strptime(expense_date, "%Y-%m-%d").date())
 
-                    if submitted:
-                        try:
-                            update_query = '''
-                            UPDATE expenses
-                            SET amount = ?, date = ?, category = ?, description = ?
-                            WHERE id = ?
-                            '''
-                            expenses_cur.execute(
-                                update_query, (amount, expense_date, category, description, selected_expense["ID"])
-                            )
-                            expenses_conn.commit()
-                            st.success("Expense updated successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"An error occurred: {e}")
+                            submitted = st.form_submit_button("Update Expense")
+
+                            if submitted:
+                                with st.spinner('Updating expense...'):
+                                    try:
+                                        # Update the expense in the database using the expense ID
+                                        update_query = '''
+                                        UPDATE expenses
+                                        SET amount = ?, date = ?, category = ?, description = ?
+                                        WHERE id = ?
+                                        '''
+                                        expenses_cur.execute(update_query, (amount, expense_date, category, description, expense_id))
+                                        expenses_conn.commit()
+                                        st.success("Expense updated successfully!")
+                                        st.rerun()  # Rerun the app to reflect changes
+                                    except Exception as e:
+                                        st.error(f"An error occurred: {e}")
 
     with tab_2:
         st.title("Expense History")
@@ -252,17 +256,17 @@ def main():
                 start_date = f"{selected_period}-01"
                 end_date = f"{selected_period}-{calendar.monthrange(int(selected_period[:4]), int(selected_period[5:7]))[1]}"
 
-                income_cur.execute('''
+                income_cur.execute(''' 
                     SELECT i.amount, i.source, i.date, i.description 
                     FROM income i 
-                    WHERE i.owner = ? AND i.date BETWEEN ? AND ?
+                    WHERE i.owner = ? AND i.date BETWEEN ? AND ? 
                 ''', (owner, start_date, end_date))
                 income_data = income_cur.fetchall()
 
-                expenses_cur.execute('''
+                expenses_cur.execute(''' 
                     SELECT amount, category, date, description 
                     FROM expenses 
-                    WHERE owner = ? AND date BETWEEN ? AND ?
+                    WHERE owner = ? AND date BETWEEN ? AND ? 
                 ''', (owner, start_date, end_date))
                 expense_data = expenses_cur.fetchall()
 
