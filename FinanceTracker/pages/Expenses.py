@@ -1,15 +1,25 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import calendar
 from datetime import datetime
+from streamlit_option_menu import option_menu
+import plotly.express as px
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import joblib
 
 # Connect to SQLite database
+if "user" not in st.session_state or st.session_state["user"] is None:
+    st.warning("Please log in to access this page.")
+    st.stop()
+    
 expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
 expenses_cur = expenses_conn.cursor()
+
+income_conn = sqlite3.connect('income.db', check_same_thread=False)
+income_cur = income_conn.cursor()
 
 # Create Expenses table if it doesn't exist
 expenses_cur.execute('''
@@ -23,6 +33,19 @@ CREATE TABLE IF NOT EXISTS expenses (
 )
 ''')
 expenses_conn.commit()
+
+# Create Income table if it doesn't exist
+income_cur.execute('''
+CREATE TABLE IF NOT EXISTS income (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    amount REAL,
+    date DATE,
+    source TEXT,
+    description TEXT
+)
+''')
+income_conn.commit()
 
 # Set default expense limit
 DEFAULT_EXPENSE_LIMIT = 500
@@ -55,122 +78,223 @@ def load_and_train_model():
 
 vectorizer, model = load_and_train_model()
 
+# Helper function to check if user has added income
+def has_income(owner):
+    query = "SELECT COUNT(*) FROM income WHERE owner = ?"
+    try:
+        result = income_cur.execute(query, (owner,)).fetchone()
+        return result[0] > 0
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return False
+
 # Main function to render tabs
 def main():
-    tab_1, tab_2 = st.tabs(["Add Expense", "Expense History"])
+    # Check if user has income
+    owner = st.session_state.get("username", "guest")
+    if not has_income(owner):
+        st.warning("Please add income in your profile before managing expenses.")
+        return
+
+    tab_1, tab_2, tab_3 = st.tabs(["Manage Expense", "Expense History", "Expense Summary"])
 
     with tab_1:
-        st.title("Add Expense")
+        st.title("Manage Expense")
 
-        with st.form("expense_form"):
-            amount = st.number_input("Amount", min_value=0.0, step=0.01)
-            description = st.text_area("Description", placeholder="Enter expense details")
-            predicted_category = ""
+        menu_action = option_menu(
+            menu_title=None,
+            options=["Add Expense", "Edit Expense"],
+            icons=["plus-circle", "edit"],
+            orientation="horizontal",
+        )
 
-            if description:
-                description_vec = vectorizer.transform([description])
-                predicted_category = model.predict(description_vec)[0]
+        if menu_action == "Add Expense":
+            st.subheader("Add Expense")
 
-            category = st.selectbox("Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"], index=0)
-            expense_date = st.date_input("Expense Date", max_value=datetime.now().date())
+            with st.form("expense_form"):
+                amount = st.number_input("Amount", min_value=0.0, step=0.01)
+                description = st.text_area("Description")
+                predicted_category = ""
 
-            submitted = st.form_submit_button("Add Expense")
+                if description:
+                    description_vec = vectorizer.transform([description])
+                    predicted_category = model.predict(description_vec)[0]
 
-            if submitted:
-                if not amount or not description:
-                    st.error("Amount and Description are required.")
-                elif amount > DEFAULT_EXPENSE_LIMIT:
-                    st.error(f"Expense exceeds the limit of {DEFAULT_EXPENSE_LIMIT} INR.")
-                else:
-                    try:
-                        # Insert expense into the database
-                        query = '''
-                        INSERT INTO expenses (owner, amount, date, category, description)
-                        VALUES (?, ?, ?, ?, ?)
-                        '''
-                        expenses_cur.execute(query, (st.session_state.get("username", "guest"), amount, expense_date, category, description))
-                        expenses_conn.commit()
+                category = st.selectbox(
+                    "Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"], index=0
+                )
+                expense_date = st.date_input("Expense Date", max_value=datetime.now().date())
 
-                        st.success("Expense added successfully!")
-                    except sqlite3.Error as e:
-                        st.error(f"An error occurred: {e}")
+                submitted = st.form_submit_button("Add Expense")
+
+                if submitted:
+                    if not amount or not description:
+                        st.error("Amount and Description are required.")
+                    elif amount > DEFAULT_EXPENSE_LIMIT:
+                        st.error(f"Expense exceeds the limit of {DEFAULT_EXPENSE_LIMIT} INR.")
+                    else:
+                        try:
+                            # Insert expense into the database
+                            query = '''
+                            INSERT INTO expenses (owner, amount, date, category, description)
+                            VALUES (?, ?, ?, ?, ?)
+                            '''
+                            expenses_cur.execute(query, (owner, amount, expense_date, category, description))
+                            expenses_conn.commit()
+
+                            st.success("Expense added successfully!")
+                        except sqlite3.Error as e:
+                            st.error(f"An error occurred: {e}")
+
+        elif menu_action == "Edit Expense":
+            st.subheader("Edit Expense")
+
+            query = '''
+            SELECT id, amount, date, category, description
+            FROM expenses
+            WHERE owner = ?
+            '''
+            expenses = expenses_cur.execute(query, (owner,)).fetchall()
+
+            if not expenses:
+                st.warning("No expenses available to edit.")
+            else:
+                # Convert data to a pandas DataFrame
+                columns = ["ID", "Amount", "Date", "Category", "Description"]
+                expenses_df = pd.DataFrame(expenses, columns=columns)
+
+                # Add serial numbers
+                expenses_df["Sr No"] = range(1, len(expenses_df) + 1)
+                display_df = expenses_df.drop(columns=["ID"])
+                display_df = display_df[["Sr No", "Amount", "Date", "Category", "Description"]]
+
+                st.table(display_df)
+
+                sr_no_to_edit = st.number_input("Enter SR No to Edit:", min_value=1, max_value=len(display_df), step=1)
+                selected_expense = expenses_df.iloc[sr_no_to_edit - 1]
+
+                with st.form("edit_expense_form"):
+                    amount = st.number_input("Amount", value=selected_expense["Amount"], min_value=0.0, step=0.01)
+                    category = st.text_input("Category", value=selected_expense["Category"])
+                    description = st.text_area("Description", value=selected_expense["Description"])
+                    expense_date = st.date_input("Date", value=datetime.strptime(selected_expense["Date"], "%Y-%m-%d").date())
+
+                    submitted = st.form_submit_button("Update Expense")
+
+                    if submitted:
+                        try:
+                            update_query = '''
+                            UPDATE expenses
+                            SET amount = ?, date = ?, category = ?, description = ?
+                            WHERE id = ?
+                            '''
+                            expenses_cur.execute(
+                                update_query, (amount, expense_date, category, description, selected_expense["ID"])
+                            )
+                            expenses_conn.commit()
+                            st.success("Expense updated successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"An error occurred: {e}")
 
     with tab_2:
         st.title("Expense History")
 
-        # Fetch expenses for the logged-in user
         query = '''
         SELECT id, amount, date, category, description
         FROM expenses
         WHERE owner = ?
         '''
-        expenses = expenses_cur.execute(query, (st.session_state.get("username", "guest"),)).fetchall()
+        expenses = expenses_cur.execute(query, (owner,)).fetchall()
 
-        # Convert data to a pandas DataFrame
-        columns = ["ID", "Amount", "Date", "Category", "Description"]
-        expenses_df = pd.DataFrame(expenses, columns=columns)
+        if not expenses:
+            st.warning("No expenses found.")
+        else:
+            columns = ["ID", "Amount", "Date", "Category", "Description"]
+            expenses_df = pd.DataFrame(expenses, columns=columns)
 
-        # Add a Serial Number column for user-specific indexing
-        expenses_df["Sr No"] = range(1, len(expenses_df) + 1)
+            # Add serial numbers
+            expenses_df["Sr No"] = range(1, len(expenses_df) + 1)
+            display_df = expenses_df.drop(columns=["ID"])
 
-        # Drop the ID column to hide it from the user
-        display_df = expenses_df.drop(columns=["ID"])
-        display_df = display_df[["Sr No", "Amount", "Date", "Category", "Description"]]
-        display_df = display_df.reset_index(drop=True)
+            # Sorting
+            sort_order = st.selectbox(
+                "Sort by:",
+                ["Date (Newest First)", "Date (Oldest First)", "Amount (High to Low)", "Amount (Low to High)", "Sr No"],
+            )
 
-        # Sorting
-        sort_order = st.selectbox(
-            "Sort by:", 
-            ["Date (Newest First)", "Date (Oldest First)", "Amount (Low to High)", "Amount (High to Low)", "Sr No (Ascending)", "Sr No (Descending)"]
-        )
+            if "Date" in sort_order:
+                display_df = display_df.sort_values(by="Date", ascending="Oldest" in sort_order)
+            elif "Amount" in sort_order:
+                display_df = display_df.sort_values(by="Amount", ascending="Low to High" in sort_order)
 
-        # Handle sorting
-        if "Date" in sort_order:
-            display_df = display_df.sort_values(by="Date", ascending="Oldest" in sort_order)
-        elif "Amount" in sort_order:
-            display_df = display_df.sort_values(by="Amount", ascending="Low to High" in sort_order)
-        elif "Sr No" in sort_order:
-            display_df = display_df.sort_values(by="Sr No", ascending="Ascending" in sort_order)
+            st.table(display_df)
 
-        # Display paginated table
-        page_size = 5
-        total_pages = len(display_df) // page_size + (len(display_df) % page_size > 0)
-        page = st.number_input("Page", min_value=1, max_value=total_pages, step=1)
-        start_idx = (page - 1) * page_size
-        end_idx = start_idx + page_size
+    with tab_3:
+        st.title("Expense Summary")
 
-        # Use st.write() to display the table without index
-        st.write(display_df.iloc[start_idx:end_idx].to_html(index=False, escape=False), unsafe_allow_html=True)
-        st.subheader("Edit an Expense")
-        selected_serial_number = st.selectbox("Select Serial Number to Edit:", display_df["Sr No"])
-        if selected_serial_number:
-            # Map the serial number to the actual expense entry
-            expense_details = expenses_df[expenses_df["Sr No"] == selected_serial_number].iloc[0]
+        income_periods = income_cur.execute(
+            "SELECT DISTINCT strftime('%Y-%m', date) FROM income WHERE owner = ?",
+            (owner,)
+        ).fetchall()
+        expense_periods = expenses_cur.execute(
+            "SELECT DISTINCT strftime('%Y-%m', date) FROM expenses WHERE owner = ?",
+            (owner,)
+        ).fetchall()
 
-            with st.form("edit_expense_form"):
-                st.write(f"Editing Expense with Serial Number: {selected_serial_number}")
-                # Display editable fields
-                amount = st.number_input("Amount", value=expense_details["Amount"], min_value=0.0, step=0.01)
-                category = st.text_input("Category", value=expense_details["Category"])
-                description = st.text_area("Description", value=expense_details["Description"])
-                expense_date = st.date_input("Date", value=datetime.strptime(expense_details["Date"], "%Y-%m-%d").date())
+        periods = sorted(set([p[0] for p in income_periods] + [p[0] for p in expense_periods]))
 
-                # Submit button to update the expense
-                submitted = st.form_submit_button("Update Expense")
-                if submitted:
-                    try:
-                        # Update the selected expense in the database
-                        update_query = '''
-                        UPDATE expenses
-                        SET amount = ?, date = ?, category = ?, description = ?
-                        WHERE id = ?
-                        '''
-                        expenses_cur.execute(update_query, (amount, expense_date, category, description, expense_details["ID"]))
-                        expenses_conn.commit()
-                        st.success("Expense updated successfully!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"An error occurred: {e}")
+        with st.form("saved_periods"):
+            selected_period = st.selectbox("Select Period (YYYY-MM):", periods)
+            submitted = st.form_submit_button("Plot Period")
+
+            if submitted:
+                start_date = f"{selected_period}-01"
+                end_date = f"{selected_period}-{calendar.monthrange(int(selected_period[:4]), int(selected_period[5:7]))[1]}"
+
+                income_cur.execute('''
+                    SELECT i.amount, i.source, i.date, i.description 
+                    FROM income i 
+                    WHERE i.owner = ? AND i.date BETWEEN ? AND ?
+                ''', (owner, start_date, end_date))
+                income_data = income_cur.fetchall()
+
+                expenses_cur.execute('''
+                    SELECT amount, category, date, description 
+                    FROM expenses 
+                    WHERE owner = ? AND date BETWEEN ? AND ?
+                ''', (owner, start_date, end_date))
+                expense_data = expenses_cur.fetchall()
+
+                incomes = {data[1]: data[0] for data in income_data}
+                expenses = {data[1]: data[0] for data in expense_data}
+
+                total_income = sum(incomes.values())
+                total_expense = sum(expenses.values())
+                remaining = total_income - total_expense
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Income:", f"{total_income:,} INR")
+                col2.metric("Total Expense:", f"{total_expense:,} INR")
+                col3.metric("Total Remaining:", f"{remaining:,} INR")
+
+                income_df = pd.DataFrame.from_dict(incomes, orient='index', columns=['Amount']).reset_index()
+                income_df.rename(columns={'index': 'Source'}, inplace=True)
+
+                expense_df = pd.DataFrame.from_dict(expenses, orient='index', columns=['Amount']).reset_index()
+                expense_df.rename(columns={'index': 'Category'}, inplace=True)
+
+                fig1 = px.pie(income_df, values='Amount', names='Source', title="Income Breakdown")
+                fig2 = px.pie(expense_df, values='Amount', names='Category', title="Expense Breakdown")
+
+                st.plotly_chart(fig1)
+                st.plotly_chart(fig2)
+
+                st.subheader("Detailed Income Data")
+                st.table(income_df)
+
+                st.subheader("Detailed Expense Data")
+                st.table(expense_df)
 
 if __name__ == "__main__":
     main()

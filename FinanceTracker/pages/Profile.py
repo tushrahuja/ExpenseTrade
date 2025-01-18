@@ -2,7 +2,12 @@ import sqlite3
 from datetime import datetime
 import time
 import streamlit as st
+import pandas as pd
 
+if "user" not in st.session_state or st.session_state["user"] is None:
+    st.warning("Please log in to access this page.")
+    st.stop()
+    
 # Connect to SQLite databases
 def connect_to_db(db_path):
     """
@@ -31,10 +36,10 @@ def execute_with_retry(conn, query, params=()):
     """
     for _ in range(5):  # Retry up to 5 times
         try:
-            cur = conn.cursor()  # Open the cursor manually
+            cur = conn.cursor()
             cur.execute(query, params)
             conn.commit()
-            cur.close()  # Explicitly close the cursor
+            cur.close()
             return
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower():
@@ -43,7 +48,7 @@ def execute_with_retry(conn, query, params=()):
                 raise
         finally:
             try:
-                cur.close()  # Ensure the cursor is closed in case of exceptions
+                cur.close()
             except:
                 pass
     raise sqlite3.OperationalError("Database is locked after multiple retries.")
@@ -69,26 +74,34 @@ def get_sources(owner):
     finally:
         cur.close()
 
-def edit_source(source_id, new_name):
-    """
-    Edit an existing income source.
-    """
-    query = "UPDATE sources SET name = ? WHERE id = ?"
-    execute_with_retry(income_conn, query, (new_name, source_id))
-
-def add_source(name, owner):
-    """
-    Add a new income source for the owner.
-    """
-    query = "INSERT INTO sources (name, owner) VALUES (?, ?)"
-    execute_with_retry(income_conn, query, (name, owner))
-
 def add_income(owner, amount, source, date, description):
     """
     Add a new income record.
     """
     query = "INSERT INTO income (owner, amount, source, date, description) VALUES (?, ?, ?, ?, ?)"
     execute_with_retry(income_conn, query, (owner, amount, source, date, description))
+
+def get_incomes(owner):
+    """
+    Fetch all income records for a given owner.
+    """
+    query = "SELECT id, amount, source, date, description FROM income WHERE owner = ?"
+    cur = income_conn.cursor()
+    try:
+        return cur.execute(query, (owner,)).fetchall()
+    finally:
+        cur.close()
+
+def edit_income(income_id, new_amount, new_source, new_date, new_description):
+    """
+    Edit an existing income record.
+    """
+    query = """
+    UPDATE income 
+    SET amount = ?, source = ?, date = ?, description = ? 
+    WHERE id = ?
+    """
+    execute_with_retry(income_conn, query, (new_amount, new_source, new_date, new_description, income_id))
 
 def validate_old_password(old_password, username):
     """
@@ -145,12 +158,12 @@ def profile_page():
     st.title(f"Welcome, {st.session_state['user']}!")
     st.header("User Profile")
 
-    # Edit Profile
+    # Edit Profile Section
     st.subheader("Update Profile")
     with st.form("edit_profile_form"):
         name = st.text_input("Full Name", value=st.session_state["user"])
         username = st.text_input("Username", value=st.session_state["username"])
-        email = st.text_input("Email", value=st.session_state["email"])  # Ensure this is pre-filled
+        email = st.text_input("Email", value=st.session_state["email"])
         old_password = st.text_input("Current Password", type="password")
         new_password = st.text_input("New Password", type="password")
         submitted = st.form_submit_button("Update Profile")
@@ -166,41 +179,9 @@ def profile_page():
 
     st.divider()
 
-    # Manage Income Sources
-    st.subheader("Income Sources")
-    sources = get_sources(owner)
-
-    # Display existing sources and edit functionality
-    if sources:
-        st.write("Your income sources:")
-        for source_id, source_name in sources:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                new_name = st.text_input(f"Edit Source (ID: {source_id})", value=source_name, key=f"edit_{source_id}")
-            if col2.button("Save", key=f"save_{source_id}"):
-                if new_name.strip():
-                    edit_source(source_id, new_name)
-                    st.success("Source updated successfully!")
-                    st.rerun()
-                else:
-                    st.error("Source name cannot be empty.")
-
-    # Add a new source
-    with st.form("add_source_form"):
-        new_source = st.text_input("Add New Source")
-        add_source_btn = st.form_submit_button("Add Source")
-        if add_source_btn:
-            if new_source.strip():
-                add_source(new_source, owner)
-                st.success("Source added successfully!")
-                st.rerun()
-            else:
-                st.error("Source name cannot be empty.")
-
-    st.divider()
-
-    # Add Income
+    # Add Income Section
     st.subheader("Add Income")
+    sources = get_sources(owner)
     with st.form("add_income_form"):
         amount = st.number_input("Amount", min_value=0.0, step=0.01)
         source = st.selectbox("Source", [src[1] for src in sources])
@@ -210,6 +191,52 @@ def profile_page():
         if add_income_btn:
             add_income(owner, amount, source, date, description)
             st.success("Income added successfully!")
+
+    st.divider()
+
+    # View and Edit Income Section
+    st.subheader("Your Incomes")
+    incomes = get_incomes(owner)
+
+    if incomes:
+        # Display incomes in a table with serial numbers
+        income_df = pd.DataFrame(
+            incomes,
+            columns=["ID", "Amount", "Source", "Date", "Description"]
+        ).reset_index()
+        income_df.rename(columns={"index": "Sr. No"}, inplace=True)
+        income_df["Sr. No"] += 1  # Start Sr. No from 1
+        st.table(income_df[["Sr. No", "Amount", "Source", "Date", "Description"]])
+
+        with st.form("edit_income_form"):
+            # Select income to edit by serial number
+            serial_number = st.number_input(
+                "Enter the Sr. No of the income you want to edit:", 
+                min_value=1, 
+                max_value=len(income_df), 
+                step=1
+            )
+            selected_income = income_df.loc[serial_number - 1]
+
+            st.write("Editing Income:")
+            new_amount = st.number_input("New Amount", value=float(selected_income["Amount"]), step=0.01)
+            new_source = st.text_input("New Source", value=selected_income["Source"])
+            new_date = st.date_input("New Date", value=datetime.strptime(selected_income["Date"], "%Y-%m-%d").date())
+            new_description = st.text_area("New Description", value=selected_income["Description"])
+
+            submit_edit = st.form_submit_button("Save Changes")
+            if submit_edit:
+                edit_income(
+                    selected_income["ID"], 
+                    new_amount, 
+                    new_source, 
+                    new_date, 
+                    new_description
+                )
+                st.success("Income record updated successfully!")
+                st.rerun()
+    else:
+        st.info("No income records found.")
 
 # Call the profile page
 profile_page()

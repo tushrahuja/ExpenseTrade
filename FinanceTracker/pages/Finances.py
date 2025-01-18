@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -116,10 +117,13 @@ with tab1:
         tickerDf = tickerData.history(period='1d', start='2024-01-01', end=datetime.today())
 
         if not tickerDf.empty:
+            st.metric("Closing Price", f"{tickerDf['Close'].iloc[-1]:.2f}")
+            st.metric("Volume", f"{tickerDf['Volume'].iloc[-1]:,.0f}")
             st.line_chart(tickerDf.Close)
             st.caption('Chart for Closing Prices.')
             st.line_chart(tickerDf.Volume)
             st.caption('Chart for Stock Volume.')
+  
         else:
             st.warning("No data available for the entered symbol. Please try again.")
 
@@ -169,78 +173,3 @@ with tab2:
 
                 st.success("Data Saved")
 
-    elif selected == "Data Visualization":
-        st.header("Data Visualization")
-
-        # Fetch unique months with income or expenses
-        income_periods = income_cur.execute(
-            "SELECT DISTINCT strftime('%Y-%m', date) FROM income WHERE owner = ?",
-            (username,)
-        ).fetchall()
-        expense_periods = expenses_cur.execute(
-            "SELECT DISTINCT strftime('%Y-%m', date) FROM expenses WHERE owner = ?",
-            (username,)
-        ).fetchall()
-
-        # Combine and sort unique periods
-        periods = sorted(set([p[0] for p in income_periods] + [p[0] for p in expense_periods]))
-
-        with st.form("saved_periods"):
-            selected_period = st.selectbox("Select Period (YYYY-MM):", periods)
-            submitted = st.form_submit_button("Plot Period")
-
-            if submitted:
-                # Adjust the date range for the entire selected month
-                start_date = f"{selected_period}-01"
-                end_date = f"{selected_period}-{calendar.monthrange(int(selected_period[:4]), int(selected_period[5:7]))[1]}"
-
-                # Fetch all income and expenses for the month
-                income_cur.execute('''
-                    SELECT i.amount, i.source, i.date, i.description 
-                    FROM income i 
-                    WHERE i.owner = ? AND i.date BETWEEN ? AND ?
-                ''', (username, start_date, end_date))
-                income_data = income_cur.fetchall()
-
-                expenses_cur.execute('''
-                    SELECT amount, category, date, description 
-                    FROM expenses 
-                    WHERE owner = ? AND date BETWEEN ? AND ?
-                ''', (username, start_date, end_date))
-                expense_data = expenses_cur.fetchall()
-
-                # Process fetched data
-                incomes = {data[1]: data[0] for data in income_data}  # Source: Amount
-                expenses = {data[1]: data[0] for data in expense_data}  # Category: Amount
-
-                # Calculate total income, expenses, and remaining balance
-                total_income = sum(incomes.values())
-                total_expense = sum(expenses.values())
-                remaining = total_income - total_expense
-
-                # Display metrics
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total Income:", f"{total_income:,} {currency}")
-                col2.metric("Total Expense:", f"{total_expense:,} {currency}")
-                col3.metric("Total Remaining:", f"{remaining:,} {currency}")
-
-                # Prepare dataframes for visualization
-                income_df = pd.DataFrame.from_dict(incomes, orient='index', columns=['Amount']).reset_index()
-                income_df.rename(columns={'index': 'Source'}, inplace=True)
-
-                expense_df = pd.DataFrame.from_dict(expenses, orient='index', columns=['Amount']).reset_index()
-                expense_df.rename(columns={'index': 'Category'}, inplace=True)
-
-                # Plot pie charts for income and expenses
-                fig1 = px.pie(income_df, values='Amount', names='Source', title="Income Breakdown")
-                fig2 = px.pie(expense_df, values='Amount', names='Category', title="Expense Breakdown")
-
-                st.plotly_chart(fig1)
-                st.plotly_chart(fig2)
-
-                # Display detailed tables
-                st.subheader("Detailed Income Data")
-                st.table(income_df)
-
-                st.subheader("Detailed Expense Data")
-                st.table(expense_df)
