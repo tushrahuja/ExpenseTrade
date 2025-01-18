@@ -77,7 +77,7 @@ def goals_page(cur, conn):
                             st.success("Saved amount updated successfully!")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"An error occurred: {e}")
+                            st.error(f"You have no savings goals set yet. ")
         else:
             st.write("You have no savings goals set yet.")
 
