@@ -190,7 +190,7 @@ with tab2:
     remaining = total_income - total_expense
 
     # Display total savings
-    st.metric("Total Savings", f"{remaining:,} INR")
+    st.metric("Total Savings", f"{remaining:,.1f} INR")
 
     # Stock prediction section
     st.write("### Stock Suggestions")
