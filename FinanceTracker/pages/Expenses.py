@@ -164,7 +164,7 @@ def main():
                     predicted_category = model.predict(description_vec)[0]
 
                 category = st.selectbox(
-                    "Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"] if predicted_category else ["Food", "Transport", "Entertainment", "Bills", "Others"],
+                    "Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"] if predicted_category else ["  ","Food", "Transport", "Entertainment", "Bills", "Others"],
                 )
 
                 expense_date = st.date_input("Expense Date", max_value=datetime.now().date())
