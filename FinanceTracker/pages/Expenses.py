@@ -78,6 +78,13 @@ def load_and_train_model():
 
 vectorizer, model = load_and_train_model()
 
+with st.sidebar:
+    st.image("expense.png", use_container_width=True)
+    if st.session_state["user"]:
+        if st.button("Logout"):
+            st.session_state["user"] = None
+            st.rerun()
+
 # Helper function to check if user has added income
 def has_income(owner):
     query = "SELECT COUNT(*) FROM income WHERE owner = ?"

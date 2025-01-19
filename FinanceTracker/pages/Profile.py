@@ -9,6 +9,13 @@ if "user" not in st.session_state or st.session_state["user"] is None:
     st.warning("Please log in to access this page.")
     st.stop()
 
+with st.sidebar:
+    st.image("expense.png", use_container_width=True)
+    if st.session_state["user"]:
+        if st.button("Logout"):
+            st.session_state["user"] = None
+            st.rerun()
+
 # Connect to SQLite databases
 def connect_to_db(db_path):
     """

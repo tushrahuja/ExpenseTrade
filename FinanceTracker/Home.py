@@ -118,9 +118,7 @@ if "user" not in st.session_state:
 # Sidebar for navigation
 with st.sidebar:
     st.image("expense.png", use_container_width=True)
-    st.title("User Authentication")
     if st.session_state["user"]:
-        st.write(f"Logged in as {st.session_state['user']}")
         if st.button("Logout"):
             st.session_state["user"] = None
             st.rerun()
