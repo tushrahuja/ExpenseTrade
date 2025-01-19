@@ -50,12 +50,25 @@ CREATE TABLE IF NOT EXISTS stock_purchases (
 expenses_conn.commit()
 
 # Add or update stock purchases
+# Add or update stock purchases
 def add_stock_purchase(owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price):
+    # Insert into stock_purchases table
     expenses_cur.execute('''
         INSERT INTO stock_purchases (owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', (owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price))
     expenses_conn.commit()
+    
+    # Calculate total purchase cost
+    total_cost = quantity * purchase_price
+
+    # Add to expenses table
+    expenses_cur.execute('''
+        INSERT INTO expenses (owner, date, amount, category, description)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (owner, purchase_date, total_cost, "Stocks", stock_name))
+    expenses_conn.commit()
+
 
 def sell_stock(stock_id, sell_price, sell_date):
     expenses_cur.execute('''
@@ -100,7 +113,7 @@ def fetch_stock_prices(symbols):
 # Load company data
 @st.cache_data
 def load_company_data():
-    file_path = r"C:\CodingT\ExpenseTrade\FinanceTracker\Ticker_Company.xlsx"
+    file_path = r"./FinanceTracker/Ticker_Company.xlsx"
     return pd.read_excel(file_path)
 
 company_data = load_company_data()

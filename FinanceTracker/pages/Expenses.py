@@ -324,8 +324,8 @@ def main():
 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Income:", f"{total_income:,} INR")
-                col2.metric("Total Expense:", f"{total_expense:,} INR")
-                col3.metric("Total Remaining:", f"{remaining:,} INR")
+                col2.metric("Total Expense:", f"{total_expense:,.1f} INR")
+                col3.metric("Total Remaining:", f"{remaining:,.1f} INR")
 
                 income_df = pd.DataFrame(income_data, columns=['Amount', 'Source'])
                 expense_df = pd.DataFrame(expense_data, columns=['Amount', 'Category'])

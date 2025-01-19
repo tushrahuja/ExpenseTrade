@@ -191,8 +191,8 @@ else:
     # Display income, expense, and remaining balance
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Income:", f"{total_income} INR")
-    col2.metric("Total Expense:", f"{total_expense} INR")
-    col3.metric("Total Remaining:", f"{remaining} INR")
+    col2.metric("Total Expense:", f"{total_expense:,.1f} INR")
+    col3.metric("Total Remaining:", f"{remaining:,.1f} INR")
 
     # Convert fetched data into pandas DataFrame for processing
     income_df = pd.DataFrame(income_data, columns=["Date", "Income", "Source", "Description"])
