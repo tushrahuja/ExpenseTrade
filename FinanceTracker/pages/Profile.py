@@ -192,7 +192,7 @@ def profile_page():
     # Add Source Section
     st.subheader("Add Income Source")
     with st.form("add_source_form"):
-        new_source = st.text_input("New Source Name")
+        new_source = st.text_input("New Source Name: (e.g., Salary, Freelance, etc.)")
         submitted = st.form_submit_button("Add Source")
         if submitted:
             if new_source.strip():
