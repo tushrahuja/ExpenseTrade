@@ -234,9 +234,20 @@ else:
     fig3.update_layout(xaxis_title='Category', yaxis_title='Total Expenses (INR)', template='plotly_dark')
 
     # Scatter plot for Income vs Expense by Category
-    fig4 = px.scatter(merged_df, x='Income', y='Expense', color='Category', title='Income vs Expense by Category', labels={'Income': 'Total Income (INR)', 'Expense': 'Total Expense (INR)'})
-    fig4.update_layout(xaxis_title='Total Income (INR)', yaxis_title='Total Expense (INR)', template='plotly_dark')
+    income_expense_grouped = merged_df.groupby(["Month", "Category"]).sum().reset_index()
 
+    # Stacked bar chart: Income and Expense by Month and Category
+    fig4 = px.bar(
+        income_expense_grouped,
+        x="Month",
+        y=["Income", "Expense"],
+        color="Category",
+        title="Income and Expense by Month and Category",
+        barmode="stack",
+        labels={"value": "Amount (INR)", "variable": "Type", "Month": "Month"},
+    )
+    fig4.update_layout(xaxis_title="Month", yaxis_title="Total Amount (INR)", template="plotly_dark")
+    
     # Layout for the charts: Using columns to split them nicely
     col1, col2 = st.columns(2)
 

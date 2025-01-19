@@ -4,9 +4,8 @@ import yfinance as yf
 import pandas as pd
 import sqlite3
 from datetime import datetime
-import calendar
-from streamlit_option_menu import option_menu
 import plotly.express as px
+from streamlit_option_menu import option_menu
 
 st.set_page_config(layout="wide")
 
@@ -53,62 +52,79 @@ CREATE TABLE IF NOT EXISTS sources (
     owner TEXT
 )
 ''')
+expenses_cur.execute('''
+CREATE TABLE IF NOT EXISTS stock_purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    stock_symbol TEXT,
+    stock_name TEXT,
+    purchase_date DATE,
+    quantity INTEGER,
+    purchase_price REAL
+)
+''')
 income_conn.commit()
+expenses_conn.commit()
 
-# Add or update income and expense data
-def add_or_update_income(owner, date, amount, source, description):
-    income_cur.execute('''
-        INSERT INTO income (owner, date, amount, source, description)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (owner, date, amount, source, description))
-    income_conn.commit()
-
-def add_or_update_expense(owner, date, amount, category, description):
+# Add or update stock purchases
+def add_stock_purchase(owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price):
     expenses_cur.execute('''
-        INSERT INTO expenses (owner, date, amount, category, description)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (owner, date, amount, category, description))
+        INSERT INTO stock_purchases (owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (owner, stock_symbol, stock_name, purchase_date, quantity, purchase_price))
     expenses_conn.commit()
 
-# Fetch sources for income
-def get_sources(owner):
-    income_cur.execute("SELECT id, name FROM sources WHERE owner = ?", (owner,))
+# Fetch income, expense, and stock data
+def get_income_data(owner):
+    income_cur.execute("SELECT date, amount, source, description FROM income WHERE owner = ?", (owner,))
     return income_cur.fetchall()
 
-# Fetch income and expense data
-def get_income_data(owner, period):
-    formatted_period = period.replace("_", "-")  # Convert period to YYYY-MM format
-    income_cur.execute('''
-        SELECT i.amount, s.name AS source, i.date, i.description 
-        FROM income i 
-        JOIN sources s ON i.source = s.id 
-        WHERE i.owner = ? AND strftime('%Y-%m', i.date) = ?''', (owner, formatted_period))
-    return income_cur.fetchall()
-
-def get_expense_data(owner, period):
-    formatted_period = period.replace("_", "-")  # Convert period to YYYY-MM format
-    expenses_cur.execute('''
-        SELECT amount, category, date, description 
-        FROM expenses 
-        WHERE owner = ? AND strftime('%Y-%m', date) = ?''', (owner, formatted_period))
+def get_expense_data(owner):
+    expenses_cur.execute("SELECT date, amount, category, description FROM expenses WHERE owner = ?", (owner,))
     return expenses_cur.fetchall()
+
+def get_stock_data(owner):
+    expenses_cur.execute('''
+        SELECT stock_symbol, stock_name, purchase_date, quantity, purchase_price 
+        FROM stock_purchases 
+        WHERE owner = ?''', (owner,))
+    return expenses_cur.fetchall()
+
+@st.cache_resource
+def fetch_stock_prices(symbols):
+    symbols = [symbol for symbol in symbols if isinstance(symbol, str)]
+    with st.spinner("Fetching stock data, please wait..."):
+        data = yf.download(tickers=symbols, period="1d", group_by="ticker")
+    stock_prices = {}
+    for symbol in symbols:
+        try:
+            stock_prices[symbol] = data[symbol]["Close"].iloc[-1] if not data[symbol].empty else None
+        except KeyError:
+            stock_prices[symbol] = None
+    return stock_prices
+
+# Load the tailored dataset for NSE
+@st.cache_data
+def load_company_data():
+    file_path = r"C:\CodingT\ExpenseTrade\FinanceTracker\Ticker_Company.xlsx"
+    return pd.read_excel(file_path)
+
+
+company_data = load_company_data()
+ticker_symbols = company_data["Symbol"].tolist()
 
 # Get the logged-in user's username
 username = st.session_state["username"]
 
 # Create tabs
-tab1, tab2 = st.tabs(["Stock Prices", "Finance Tracker"])
+tab1, tab2 = st.tabs(["Stock Prices", "Savings & Predictions"])
 
 with tab1:
     st.title("Stock Prices")
-    excel_file = r"./FinanceTracker/Ticker_Company.xlsx"
-    company_data = pd.read_excel(excel_file)
 
     company_names = company_data["Company_Name"].tolist()
-    ticker_symbols = company_data["Symbol"].tolist()
-
     selected_company = st.selectbox("Select a Company", company_names)
-    selected_ticker_symbol = ticker_symbols[company_names.index(selected_company)]
+    selected_ticker_symbol = company_data.loc[company_data["Company_Name"] == selected_company, "Symbol"].iloc[0]
 
     st.write("Selected Ticker Symbol:", selected_ticker_symbol)
 
@@ -119,57 +135,62 @@ with tab1:
         if not tickerDf.empty:
             st.metric("Closing Price", f"{tickerDf['Close'].iloc[-1]:.2f}")
             st.metric("Volume", f"{tickerDf['Volume'].iloc[-1]:,.0f}")
-            st.line_chart(tickerDf.Close)
-            st.caption('Chart for Closing Prices.')
-            st.line_chart(tickerDf.Volume)
-            st.caption('Chart for Stock Volume.')
-  
+            fig_close = px.line(tickerDf, x=tickerDf.index, y="Close", title="Closing Prices", color_discrete_sequence=["green"])
+            fig_volume = px.line(tickerDf, x=tickerDf.index, y="Volume", title="Stock Volume", color_discrete_sequence=["orange"])
+            st.plotly_chart(fig_close)
+            st.plotly_chart(fig_volume)
         else:
             st.warning("No data available for the entered symbol. Please try again.")
 
 with tab2:
-    st.title("Income and Expense Tracker")
-    incomes = get_sources(username)
-    expenses = ["Rent", "Utilities", "Groceries", "Car", "Insurance", "Savings", "Miscellaneous"]
-    currency = "INR"
-
-    years = [datetime.today().year, datetime.today().year + 1]
-    months = list(calendar.month_name[1:])
-
-    selected = option_menu(
+    st.title("Savings & Stock Predictions")
+    selected_option = option_menu(
         menu_title=None,
-        icons=["pencil-fill", "bar-chart-fill"],
-        options=["Data Entry", "Data Visualization"], orientation="horizontal",
+        options=["View Savings", "Predict Stocks"],
+        icons=["wallet", "graph-up"],
+        orientation="horizontal",
     )
 
-    if selected == "Data Entry":
-        with st.form("entry_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            month = col1.selectbox("Select Month", months, key='month')
-            year = col2.selectbox("Select Year", years, key='year')
+    income_data = get_income_data(username)
+    expense_data = get_expense_data(username)
 
-            with st.expander("Income"):
-                for income in incomes:
-                    st.number_input(f"{income[1]}:", min_value=0, format="%i", step=100, key=f"income_{income[0]}")
-            with st.expander("Expenses"):
-                for expense in expenses:
-                    st.number_input(f"{expense}:", min_value=0, format="%i", step=100, key=f"expense_{expense}")
-            with st.expander("Remarks"):
-                comment = st.text_area("", placeholder="Enter Remarks")
+    total_income = sum(data[1] for data in income_data)
+    total_expense = sum(data[1] for data in expense_data)
+    remaining = total_income - total_expense
 
-            submitted = st.form_submit_button("Save Data")
+    if selected_option == "View Savings":
+        st.metric("Total Savings", f"{remaining:,} INR")
 
-            if submitted:
-                period = f"{year}_{month}"
-                for income in incomes:
-                    amount = st.session_state[f"income_{income[0]}"]
-                    if amount > 0:
-                        add_or_update_income(username, f"{year}-{str(month).zfill(2)}-01", amount, income[0], comment)
+    elif selected_option == "Predict Stocks":
+        st.write("Based on your savings, consider the following top 10 cheapest stocks:")
 
-                for expense in expenses:
-                    amount = st.session_state[f"expense_{expense}"]
-                    if amount > 0:
-                        add_or_update_expense(username, f"{year}-{str(month).zfill(2)}-01", amount, expense, comment)
+        # Fetch stock prices
+        stock_prices = fetch_stock_prices(ticker_symbols)
 
-                st.success("Data Saved")
+        suggested_stocks = []
+        for _, row in company_data.iterrows():
+            ticker_price = stock_prices.get(row['Symbol'])
+            if ticker_price and ticker_price <= remaining:
+                suggested_stocks.append({
+                    'Company_Name': row['Company_Name'],
+                    'Symbol': row['Symbol'],
+                    'Price': ticker_price
+                })
 
+        suggested_stocks_df = pd.DataFrame(suggested_stocks)
+
+        if not suggested_stocks_df.empty:
+            suggested_stocks_df = suggested_stocks_df.sort_values(by="Price").head(10)
+            for _, stock in suggested_stocks_df.iterrows():
+                st.write(f"{stock['Company_Name']} ({stock['Symbol']}) - Price: {stock['Price']:.2f}")
+
+            selected_stock = st.selectbox("Select a stock to purchase:", suggested_stocks_df['Symbol'].tolist())
+            quantity = st.number_input("Enter quantity:", min_value=1, step=1)
+
+            if st.button("Purchase Stock"):
+                stock_name = suggested_stocks_df[suggested_stocks_df['Symbol'] == selected_stock]['Company_Name'].iloc[0]
+                stock_price = suggested_stocks_df[suggested_stocks_df['Symbol'] == selected_stock]['Price'].iloc[0]
+                add_stock_purchase(username, selected_stock, stock_name, datetime.today().strftime("%Y-%m-%d"), quantity, stock_price)
+                st.success("Stock purchased successfully!")
+        else:
+            st.warning("No stocks match your savings amount.")
