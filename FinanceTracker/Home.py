@@ -9,16 +9,21 @@ import joblib
 from streamlit_option_menu import option_menu
 import plotly.express as px
 
-
 # Set up page configuration
 st.set_page_config(page_title="ExpenseTrade", page_icon="\U0001F512", layout="wide")
 
-# Connect to SQLite database
-conn = sqlite3.connect('users.db', check_same_thread=False)
-cur = conn.cursor()
+# Connect to SQLite databases
+users_conn = sqlite3.connect('users.db', check_same_thread=False)
+users_cur = users_conn.cursor()
+
+expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
+expenses_cur = expenses_conn.cursor()
+
+income_conn = sqlite3.connect('income.db', check_same_thread=False)
+income_cur = income_conn.cursor()
 
 # Create Users table if it doesn't exist
-cur.execute('''
+users_cur.execute('''
 CREATE TABLE IF NOT EXISTS users (
     name TEXT,
     username TEXT PRIMARY KEY,
@@ -26,11 +31,9 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT
 )
 ''')
-conn.commit()
+users_conn.commit()
 
 # Create Expenses table if it doesn't exist
-expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
-expenses_cur = expenses_conn.cursor()
 expenses_cur.execute('''
 CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,26 +47,40 @@ CREATE TABLE IF NOT EXISTS expenses (
 ''')
 expenses_conn.commit()
 
+# Create Income table if it doesn't exist
+income_cur.execute('''
+CREATE TABLE IF NOT EXISTS income (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    amount REAL,
+    source TEXT,
+    date DATE,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+income_conn.commit()
+
 # Set default expense limit
 DEFAULT_EXPENSE_LIMIT = 500
 
 # Helper functions
 def register_user(name, username, email, password):
     try:
-        cur.execute('''
+        users_cur.execute('''
         INSERT INTO users (name, username, email, password)
         VALUES (?, ?, ?, ?)
         ''', (name, username, email, password))
-        conn.commit()
+        users_conn.commit()
         return True
     except sqlite3.IntegrityError:
         return False
 
 def login_user(username, password):
-    cur.execute('''
+    users_cur.execute('''
     SELECT name, username FROM users WHERE username = ? AND password = ?
     ''', (username, password))
-    return cur.fetchone()
+    return users_cur.fetchone()
 
 # Load dataset and train model (once per session)
 @st.cache_resource
@@ -159,14 +176,14 @@ else:
     st.header("This is your Dashboard!")
     st.divider()
 
-    # Finance Data
-    username = st.session_state["username"]
-    conn = sqlite3.connect('data.db', check_same_thread=False)
-    cur = conn.cursor()
-
     # Fetch income and expense data for the logged-in user
-    income_data = cur.execute("SELECT period, amount, category FROM finance_data WHERE type = 'Income' AND username = ?", (username,)).fetchall()
-    expense_data = cur.execute("SELECT period, amount, category FROM finance_data WHERE type = 'Expense' AND username = ?", (username,)).fetchall()
+    username = st.session_state["username"]
+
+    # Fetch income data from income.db
+    income_data = income_cur.execute("SELECT date, amount, source, description FROM income WHERE owner = ?", (username,)).fetchall()
+
+    # Fetch expense data from expenses.db
+    expense_data = expenses_cur.execute("SELECT date, amount, category, description FROM expenses WHERE owner = ?", (username,)).fetchall()
 
     # Calculate total income, total expense, and remaining balance
     total_income = sum(data[1] for data in income_data)
@@ -179,15 +196,15 @@ else:
     col2.metric("Total Expense:", f"{total_expense} INR")
     col3.metric("Total Remaining:", f"{remaining} INR")
 
-        # Convert fetched data into pandas DataFrame for processing
-    income_df = pd.DataFrame(income_data, columns=["Period", "Income", "Category"])
-    expense_df = pd.DataFrame(expense_data, columns=["Period", "Expense", "Category"])
+    # Convert fetched data into pandas DataFrame for processing
+    income_df = pd.DataFrame(income_data, columns=["Date", "Income", "Source", "Description"])
+    expense_df = pd.DataFrame(expense_data, columns=["Date", "Expense", "Category", "Description"])
 
-    # Concatenate income and expense data
+    # Merge income and expense data
     merged_df = pd.concat([income_df, expense_df], axis=0)
 
-    # Extract month from the period for grouping
-    merged_df["Month"] = merged_df["Period"].str.split("_").str[1]
+    # Extract month from the date for grouping
+    merged_df["Month"] = pd.to_datetime(merged_df["Date"]).dt.month_name()
 
     # Group by month and sum the amounts
     grouped_df = merged_df.groupby("Month").sum().reset_index()
@@ -198,26 +215,22 @@ else:
     # Set the "Month" column as a categorical variable with the specified order
     merged_df["Month"] = pd.Categorical(merged_df["Month"], categories=month_order, ordered=True)
 
-    # Define neon colors for categories
-    neon_colors = ['#FF005E', '#F30476', '#E7098E', '#DC0DA6', '#D011BD', '#C416D5', '#B81AED', '#4361ee', '#4895ef', '#4cc9f0']
-    neon_green_palette = ['#2b9348', '#3eaf7c', '#57cc99', '#64dfdf', '#72efdd', '#64dfdf', '#72efdd', '#64dfdf', '#50c9c3', '#40b3a2']
-
     # Create line chart for income and expense trends over months
     fig = px.line(grouped_df, x='Month', y=['Income', 'Expense'], title='Income and Expense over Months')
     fig.update_layout(xaxis_title='Month', yaxis_title='Amount (INR)', template='plotly_dark')
 
-    # Group income by category for the bar plot
-    income_grouped = income_df.groupby("Category").sum().reset_index()
+    # Group income by source for the bar plot
+    income_grouped = income_df.groupby("Source").sum().reset_index()
 
-    # Bar plot for total income by category
-    fig2 = px.bar(income_grouped, x='Category', y='Income', title='Total Income by Category', color='Category', color_discrete_sequence=neon_green_palette)
-    fig2.update_layout(xaxis_title='Category', yaxis_title='Total Income (INR)', template='plotly_dark')
+    # Bar plot for total income by source
+    fig2 = px.bar(income_grouped, x='Source', y='Income', title='Total Income by Source', color='Source')
+    fig2.update_layout(xaxis_title='Source', yaxis_title='Total Income (INR)', template='plotly_dark')
 
     # Group expense by category for the bar plot
     expense_grouped = expense_df.groupby("Category").sum().reset_index()
 
     # Bar plot for total expenses by category
-    fig3 = px.bar(expense_grouped, x='Category', y='Expense', title='Total Expenses by Category', color='Category', color_discrete_sequence=neon_colors)
+    fig3 = px.bar(expense_grouped, x='Category', y='Expense', title='Total Expenses by Category', color='Category')
     fig3.update_layout(xaxis_title='Category', yaxis_title='Total Expenses (INR)', template='plotly_dark')
 
     # Scatter plot for Income vs Expense by Category
@@ -228,13 +241,13 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
-            st.plotly_chart(fig)  # Line chart: Income vs Expense over months
+        st.plotly_chart(fig)  # Line chart: Income vs Expense over months
 
     with col2:
-            st.plotly_chart(fig2)  # Bar chart: Total Income by Category
+        st.plotly_chart(fig2)  # Bar chart: Total Income by Source
 
     with col1:
-            st.plotly_chart(fig3)  # Bar chart: Total Expenses by Category
+        st.plotly_chart(fig3)  # Bar chart: Total Expenses by Category
 
     with col2:
-            st.plotly_chart(fig4)  # Scatter plot: Income vs Expense by Category
+        st.plotly_chart(fig4)  # Scatter plot: Income vs Expense by Category

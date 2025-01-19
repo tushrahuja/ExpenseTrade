@@ -4,10 +4,11 @@ import time
 import streamlit as st
 import pandas as pd
 
+# Ensure user is logged in
 if "user" not in st.session_state or st.session_state["user"] is None:
     st.warning("Please log in to access this page.")
     st.stop()
-    
+
 # Connect to SQLite databases
 def connect_to_db(db_path):
     """
@@ -74,6 +75,13 @@ def get_sources(owner):
     finally:
         cur.close()
 
+def add_source(owner, name):
+    """
+    Add a new income source for the user.
+    """
+    query = "INSERT INTO sources (owner, name) VALUES (?, ?)"
+    execute_with_retry(income_conn, query, (owner, name))
+
 def add_income(owner, amount, source, date, description):
     """
     Add a new income record.
@@ -117,7 +125,7 @@ def validate_old_password(old_password, username):
 
 def update_user(name, username, email, new_password, old_username):
     """
-    Update the user profile with new details, using explicit cursor handling.
+    Update the user profile with new details.
     """
     # If no new password is provided, retain the old password
     if not new_password:
@@ -131,15 +139,10 @@ def update_user(name, username, email, new_password, old_username):
 
     # Perform the update
     query = "UPDATE users SET name = ?, username = ?, email = ?, password = ? WHERE username = ?"
-    cur = users_conn.cursor()
-    try:
-        cur.execute(query, (name, username, email, new_password, old_username))
-        users_conn.commit()
-        st.session_state["user"] = name
-        st.session_state["username"] = username
-        st.session_state["email"] = email  # Update email in session state
-    finally:
-        cur.close()
+    execute_with_retry(users_conn, query, (name, username, email, new_password, old_username))
+    st.session_state["user"] = name
+    st.session_state["username"] = username
+    st.session_state["email"] = email  # Update email in session state
 
 # Profile Page
 def profile_page():
@@ -173,24 +176,42 @@ def profile_page():
                 st.error("Please provide your current password to update your profile.")
             elif validate_old_password(old_password, st.session_state["username"]):
                 update_user(name, username, email, new_password, st.session_state["username"])
-                st.success("Profile updated successfully! Please refresh for changes to reflect.")
+                st.success("Profile updated successfully!")
             else:
                 st.error("Current password is incorrect. Please try again.")
+
+    st.divider()
+
+    # Add Source Section
+    st.subheader("Add Income Source")
+    with st.form("add_source_form"):
+        new_source = st.text_input("New Source Name")
+        submitted = st.form_submit_button("Add Source")
+        if submitted:
+            if new_source.strip():
+                add_source(owner, new_source)
+                st.success("Source added successfully!")
+                st.rerun()
+            else:
+                st.error("Source name cannot be empty.")
 
     st.divider()
 
     # Add Income Section
     st.subheader("Add Income")
     sources = get_sources(owner)
-    with st.form("add_income_form"):
-        amount = st.number_input("Amount", min_value=0.0, step=0.01)
-        source = st.selectbox("Source", [src[1] for src in sources])
-        description = st.text_area("Description")
-        date = st.date_input("Date", max_value=datetime.now().date())
-        add_income_btn = st.form_submit_button("Add Income")
-        if add_income_btn:
-            add_income(owner, amount, source, date, description)
-            st.success("Income added successfully!")
+    if sources:
+        with st.form("add_income_form"):
+            amount = st.number_input("Amount", min_value=0.0, step=0.01)
+            source = st.selectbox("Source", [src[1] for src in sources])
+            description = st.text_area("Description")
+            date = st.date_input("Date", max_value=datetime.now().date())
+            add_income_btn = st.form_submit_button("Add Income")
+            if add_income_btn:
+                add_income(owner, amount, source, date, description)
+                st.success("Income added successfully!")
+    else:
+        st.info("No sources available. Please add an income source above.")
 
     st.divider()
 

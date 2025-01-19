@@ -9,12 +9,14 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import joblib
+import numpy as np
+from sklearn.linear_model import LinearRegression
 
 # Connect to SQLite database
 if "user" not in st.session_state or st.session_state["user"] is None:
     st.warning("Please log in to access this page.")
     st.stop()
-    
+
 expenses_conn = sqlite3.connect('expenses.db', check_same_thread=False)
 expenses_cur = expenses_conn.cursor()
 
@@ -86,6 +88,42 @@ def has_income(owner):
         st.error(f"An error occurred: {e}")
         return False
 
+# Helper function to fetch historical expense data
+def fetch_expense_data(owner):
+    query = '''
+    SELECT date, SUM(amount) AS total_expense
+    FROM expenses
+    WHERE owner = ?
+    GROUP BY date
+    ORDER BY date
+    '''
+    return expenses_cur.execute(query, (owner,)).fetchall()
+
+# Helper function to forecast expenses
+def forecast_expenses(expense_data):
+    if not expense_data:
+        return None, None
+
+    df = pd.DataFrame(expense_data, columns=["Date", "Total Expense"])
+    df['Date'] = pd.to_datetime(df['Date'])
+    df['Month'] = df['Date'].dt.to_period('M').astype(str)
+    df_grouped = df.groupby('Month')['Total Expense'].sum().reset_index()
+    df_grouped['Month Index'] = np.arange(len(df_grouped))
+
+    X = df_grouped[['Month Index']]
+    y = df_grouped['Total Expense']
+    model = LinearRegression()
+    model.fit(X, y)
+
+    future_indices = np.arange(len(df_grouped), len(df_grouped) + 3).reshape(-1, 1)
+    future_expenses = model.predict(future_indices)
+
+    future_months = pd.date_range(df_grouped['Month'].iloc[-1], periods=4, freq='M')[1:].strftime('%Y-%m').tolist()
+
+    forecast_df = pd.DataFrame({"Month": future_months, "Predicted Expense": future_expenses})
+
+    return df_grouped, forecast_df
+
 # Main function to render tabs
 def main():
     # Check if user has income
@@ -94,7 +132,7 @@ def main():
         st.warning("Please add income in your profile before managing expenses.")
         return
 
-    tab_1, tab_2, tab_3 = st.tabs(["Manage Expense", "Expense History", "Expense Summary"])
+    tab_1, tab_2, tab_3, tab_4 = st.tabs(["Manage Expense", "Expense History", "Expense Summary", "Expense Forecast"])
 
     with tab_1:
         st.title("Manage Expense")
@@ -299,6 +337,17 @@ def main():
 
                 st.subheader("Detailed Expense Data")
                 st.table(expense_df)
+
+    with tab_4:
+        st.title("Expense Forecast")
+        expense_data = fetch_expense_data(owner)
+        historical_data, forecast_data = forecast_expenses(expense_data)
+        if forecast_data is not None:
+            st.table(forecast_data)
+            fig = px.line(pd.concat([historical_data, forecast_data]), x="Month", y="Predicted Expense", title="Expense Forecast")
+            st.plotly_chart(fig)
+        else:
+            st.warning("Not enough data for forecasting.")
 
 if __name__ == "__main__":
     main()
