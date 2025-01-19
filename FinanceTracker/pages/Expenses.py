@@ -157,8 +157,9 @@ def main():
                     predicted_category = model.predict(description_vec)[0]
 
                 category = st.selectbox(
-                    "Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"], index=0
+                    "Category", [predicted_category] + ["Food", "Transport", "Entertainment", "Bills", "Others"] if predicted_category else ["Food", "Transport", "Entertainment", "Bills", "Others"],
                 )
+
                 expense_date = st.date_input("Expense Date", max_value=datetime.now().date())
 
                 submitted = st.form_submit_button("Add Expense")
@@ -295,24 +296,23 @@ def main():
                 end_date = f"{selected_period}-{calendar.monthrange(int(selected_period[:4]), int(selected_period[5:7]))[1]}"
 
                 income_cur.execute(''' 
-                    SELECT i.amount, i.source, i.date, i.description 
+                    SELECT SUM(i.amount), i.source 
                     FROM income i 
-                    WHERE i.owner = ? AND i.date BETWEEN ? AND ? 
+                    WHERE i.owner = ? AND i.date BETWEEN ? AND ?
+                    GROUP BY i.source
                 ''', (owner, start_date, end_date))
                 income_data = income_cur.fetchall()
 
                 expenses_cur.execute(''' 
-                    SELECT amount, category, date, description 
+                    SELECT SUM(amount), category 
                     FROM expenses 
-                    WHERE owner = ? AND date BETWEEN ? AND ? 
+                    WHERE owner = ? AND date BETWEEN ? AND ?
+                    GROUP BY category
                 ''', (owner, start_date, end_date))
                 expense_data = expenses_cur.fetchall()
 
-                incomes = {data[1]: data[0] for data in income_data}
-                expenses = {data[1]: data[0] for data in expense_data}
-
-                total_income = sum(incomes.values())
-                total_expense = sum(expenses.values())
+                total_income = sum([data[0] for data in income_data])
+                total_expense = sum([data[0] for data in expense_data])
                 remaining = total_income - total_expense
 
                 col1, col2, col3 = st.columns(3)
@@ -320,11 +320,8 @@ def main():
                 col2.metric("Total Expense:", f"{total_expense:,} INR")
                 col3.metric("Total Remaining:", f"{remaining:,} INR")
 
-                income_df = pd.DataFrame.from_dict(incomes, orient='index', columns=['Amount']).reset_index()
-                income_df.rename(columns={'index': 'Source'}, inplace=True)
-
-                expense_df = pd.DataFrame.from_dict(expenses, orient='index', columns=['Amount']).reset_index()
-                expense_df.rename(columns={'index': 'Category'}, inplace=True)
+                income_df = pd.DataFrame(income_data, columns=['Amount', 'Source'])
+                expense_df = pd.DataFrame(expense_data, columns=['Amount', 'Category'])
 
                 fig1 = px.pie(income_df, values='Amount', names='Source', title="Income Breakdown")
                 fig2 = px.pie(expense_df, values='Amount', names='Category', title="Expense Breakdown")
