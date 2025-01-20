@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 import joblib
 from streamlit_option_menu import option_menu
 import plotly.express as px
+import bcrypt
 
 # Set up page configuration
 st.set_page_config(page_title="ExpenseTrade", page_icon="\U0001F512", layout="wide")
@@ -65,12 +66,21 @@ income_conn.commit()
 DEFAULT_EXPENSE_LIMIT = 500
 
 # Helper functions
+def hash_password(password):
+    """Hash a password for storing."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def check_password(password, hashed):
+    """Check a hashed password against the user input."""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
 def register_user(name, username, email, password):
     try:
+        hashed_password = hash_password(password)
         users_cur.execute('''
         INSERT INTO users (name, username, email, password)
         VALUES (?, ?, ?, ?)
-        ''', (name, username, email, password))
+        ''', (name, username, email, hashed_password))
         users_conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -78,9 +88,12 @@ def register_user(name, username, email, password):
 
 def login_user(username, password):
     users_cur.execute('''
-    SELECT name, username FROM users WHERE username = ? AND password = ?
-    ''', (username, password))
-    return users_cur.fetchone()
+    SELECT name, username, password FROM users WHERE username = ?
+    ''', (username,))
+    user = users_cur.fetchone()
+    if user and check_password(password, user[2]):
+        return user[:2]  # Return name and username
+    return None
 
 # Load dataset and train model (once per session)
 @st.cache_resource
