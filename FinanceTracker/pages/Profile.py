@@ -166,7 +166,6 @@ def profile_page():
             st.session_state["email"] = fetched_email  # Store the email in session state
 
     st.title(f"Welcome, {st.session_state['user']}!")
-    st.header("User Profile")
 
     # Edit Profile Section
     st.subheader("Update Profile")
