@@ -174,89 +174,93 @@ else:
     st.header("This is your Dashboard!")
     st.divider()
 
-    # Fetch income and expense data for the logged-in user
-    username = st.session_state["username"]
+    try:
+        # Fetch income and expense data for the logged-in user
+        username = st.session_state["username"]
 
-    # Fetch income data from income.db
-    income_data = income_cur.execute("SELECT date, amount, source, description FROM income WHERE owner = ?", (username,)).fetchall()
+        # Fetch income data from income.db
+        income_data = income_cur.execute("SELECT date, amount, source, description FROM income WHERE owner = ?", (username,)).fetchall()
 
-    # Fetch expense data from expenses.db
-    expense_data = expenses_cur.execute("SELECT date, amount, category, description FROM expenses WHERE owner = ?", (username,)).fetchall()
+        # Fetch expense data from expenses.db
+        expense_data = expenses_cur.execute("SELECT date, amount, category, description FROM expenses WHERE owner = ?", (username,)).fetchall()
 
-    # Calculate total income, total expense, and remaining balance
-    total_income = sum(data[1] for data in income_data)
-    total_expense = sum(data[1] for data in expense_data)
-    remaining = total_income - total_expense
+        # Calculate total income, total expense, and remaining balance
+        total_income = sum(data[1] for data in income_data)
+        total_expense = sum(data[1] for data in expense_data)
+        remaining = total_income - total_expense
 
-    # Display income, expense, and remaining balance
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Income:", f"{total_income} INR")
-    col2.metric("Total Expense:", f"{total_expense:,.1f} INR")
-    col3.metric("Total Remaining:", f"{remaining:,.1f} INR")
+        # Display income, expense, and remaining balance
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Income:", f"{total_income} INR")
+        col2.metric("Total Expense:", f"{total_expense:,.1f} INR")
+        col3.metric("Total Remaining:", f"{remaining:,.1f} INR")
 
-    # Convert fetched data into pandas DataFrame for processing
-    income_df = pd.DataFrame(income_data, columns=["Date", "Income", "Source", "Description"])
-    expense_df = pd.DataFrame(expense_data, columns=["Date", "Expense", "Category", "Description"])
+        # Convert fetched data into pandas DataFrame for processing
+        income_df = pd.DataFrame(income_data, columns=["Date", "Income", "Source", "Description"])
+        expense_df = pd.DataFrame(expense_data, columns=["Date", "Expense", "Category", "Description"])
 
-    # Merge income and expense data
-    merged_df = pd.concat([income_df, expense_df], axis=0)
+        # Merge income and expense data
+        merged_df = pd.concat([income_df, expense_df], axis=0)
 
-    # Extract month from the date for grouping
-    merged_df["Month"] = pd.to_datetime(merged_df["Date"]).dt.month_name()
+        # Extract month from the date for grouping
+        merged_df["Month"] = pd.to_datetime(merged_df["Date"]).dt.month_name()
 
-    # Group by month and sum the amounts
-    grouped_df = merged_df.groupby("Month").sum().reset_index()
+        # Group by month and sum the amounts
+        grouped_df = merged_df.groupby("Month").sum().reset_index()
 
-    # Define the order for months
-    month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+        # Define the order for months
+        month_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
-    # Set the "Month" column as a categorical variable with the specified order
-    merged_df["Month"] = pd.Categorical(merged_df["Month"], categories=month_order, ordered=True)
+        # Set the "Month" column as a categorical variable with the specified order
+        merged_df["Month"] = pd.Categorical(merged_df["Month"], categories=month_order, ordered=True)
 
-    # Create line chart for income and expense trends over months
-    fig = px.line(grouped_df, x='Month', y=['Income', 'Expense'], title='Income and Expense over Months')
-    fig.update_layout(xaxis_title='Month', yaxis_title='Amount (INR)', template='plotly_dark')
+        # Create line chart for income and expense trends over months
+        fig = px.line(grouped_df, x='Month', y=['Income', 'Expense'], title='Income and Expense over Months')
+        fig.update_layout(xaxis_title='Month', yaxis_title='Amount (INR)', template='plotly_dark')
 
-    # Group income by source for the bar plot
-    income_grouped = income_df.groupby("Source").sum().reset_index()
+        # Group income by source for the bar plot
+        income_grouped = income_df.groupby("Source").sum().reset_index()
 
-    # Bar plot for total income by source
-    fig2 = px.bar(income_grouped, x='Source', y='Income', title='Total Income by Source', color='Source')
-    fig2.update_layout(xaxis_title='Source', yaxis_title='Total Income (INR)', template='plotly_dark')
+        # Bar plot for total income by source
+        fig2 = px.bar(income_grouped, x='Source', y='Income', title='Total Income by Source', color='Source')
+        fig2.update_layout(xaxis_title='Source', yaxis_title='Total Income (INR)', template='plotly_dark')
 
-    # Group expense by category for the bar plot
-    expense_grouped = expense_df.groupby("Category").sum().reset_index()
+        # Group expense by category for the bar plot
+        expense_grouped = expense_df.groupby("Category").sum().reset_index()
 
-    # Bar plot for total expenses by category
-    fig3 = px.bar(expense_grouped, x='Category', y='Expense', title='Total Expenses by Category', color='Category')
-    fig3.update_layout(xaxis_title='Category', yaxis_title='Total Expenses (INR)', template='plotly_dark')
+        # Bar plot for total expenses by category
+        fig3 = px.bar(expense_grouped, x='Category', y='Expense', title='Total Expenses by Category', color='Category')
+        fig3.update_layout(xaxis_title='Category', yaxis_title='Total Expenses (INR)', template='plotly_dark')
 
-    # Scatter plot for Income vs Expense by Category
-    income_expense_grouped = merged_df.groupby(["Month", "Category"]).sum().reset_index()
+        # Scatter plot for Income vs Expense by Category
+        income_expense_grouped = merged_df.groupby(["Month", "Category"]).sum().reset_index()
 
-    # Stacked bar chart: Income and Expense by Month and Category
-    fig4 = px.bar(
-        income_expense_grouped,
-        x="Month",
-        y=["Income", "Expense"],
-        color="Category",
-        title="Income and Expense by Month and Category",
-        barmode="stack",
-        labels={"value": "Amount (INR)", "variable": "Type", "Month": "Month"},
-    )
-    fig4.update_layout(xaxis_title="Month", yaxis_title="Total Amount (INR)", template="plotly_dark")
-    
-    # Layout for the charts: Using columns to split them nicely
-    col1, col2 = st.columns(2)
+        # Stacked bar chart: Income and Expense by Month and Category
+        fig4 = px.bar(
+            income_expense_grouped,
+            x="Month",
+            y=["Income", "Expense"],
+            color="Category",
+            title="Income and Expense by Month and Category",
+            barmode="stack",
+            labels={"value": "Amount (INR)", "variable": "Type", "Month": "Month"},
+        )
+        fig4.update_layout(xaxis_title="Month", yaxis_title="Total Amount (INR)", template="plotly_dark")
+        
+        # Layout for the charts: Using columns to split them nicely
+        col1, col2 = st.columns(2)
 
-    with col1:
-        st.plotly_chart(fig)  # Line chart: Income vs Expense over months
+        with col1:
+            st.plotly_chart(fig)  # Line chart: Income vs Expense over months
 
-    with col2:
-        st.plotly_chart(fig2)  # Bar chart: Total Income by Source
+        with col2:
+            st.plotly_chart(fig2)  # Bar chart: Total Income by Source
 
-    with col1:
-        st.plotly_chart(fig3)  # Bar chart: Total Expenses by Category
+        with col1:
+            st.plotly_chart(fig3)  # Bar chart: Total Expenses by Category
 
-    with col2:
-        st.plotly_chart(fig4)  # Scatter plot: Income vs Expense by Category
+        with col2:
+            st.plotly_chart(fig4)  # Scatter plot: Income vs Expense by Category
+
+    except Exception as e:
+        st.error("Dashboard cannot be loaded when your TOTAL EXPENSE is NOT set(0.00)")

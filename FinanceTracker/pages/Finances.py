@@ -159,7 +159,7 @@ with tab1:
 
             support_level = tickerDf['Close'].min()
 
-            # Simple prediction model (e.g., linear regression)
+            # prediction model (e.g., linear regression)
             X = np.arange(len(tickerDf)).reshape(-1, 1)
             y = tickerDf['Close'].values
             model = LinearRegression().fit(X, y)
