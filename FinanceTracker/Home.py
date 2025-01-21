@@ -9,13 +9,15 @@ import joblib
 from streamlit_option_menu import option_menu
 import plotly.express as px
 import bcrypt
+from captcha.image import ImageCaptcha
+import random
+import string
 import smtplib
 from email.mime.text import MIMEText
 import ssl
-import random
 
 # Set up page configuration
-st.set_page_config(page_title="ExpenseTrade", page_icon="\U0001F512", layout="wide")
+st.set_page_config(page_title="ExpenseTrade", page_icon="🔒", layout="wide")
 
 # Connect to SQLite databases
 users_conn = sqlite3.connect('users.db', check_same_thread=False)
@@ -27,7 +29,7 @@ expenses_cur = expenses_conn.cursor()
 income_conn = sqlite3.connect('income.db', check_same_thread=False)
 income_cur = income_conn.cursor()
 
-# Create Users table if it doesn't exist
+# Create tables if they don't exist
 users_cur.execute('''
 CREATE TABLE IF NOT EXISTS users (
     name TEXT,
@@ -38,21 +40,53 @@ CREATE TABLE IF NOT EXISTS users (
 ''')
 users_conn.commit()
 
+expenses_cur.execute('''
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    amount REAL,
+    date DATE,
+    category TEXT,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+expenses_conn.commit()
+
+income_cur.execute('''
+CREATE TABLE IF NOT EXISTS income (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT,
+    amount REAL,
+    source TEXT,
+    date DATE,
+    description TEXT,
+    FOREIGN KEY (owner) REFERENCES users(username)
+)
+''')
+income_conn.commit()
+
 # Helper functions
 def hash_password(password):
-    """Hash a password for storing."""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def check_password(password, hashed):
-    """Check a hashed password against the user input."""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except ValueError:
+        return False
 
 def generate_reset_code():
-    """Generate a random 6-digit reset code."""
     return str(random.randint(100000, 999999))
 
+def generate_captcha_text():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+
+def generate_captcha_image(captcha_text):
+    image = ImageCaptcha()
+    return image.generate_image(captcha_text)
+
 def send_reset_email(receiver_email, reset_code):
-    """Send a password reset email to the user."""
     try:
         msg = MIMEText(f"Your password reset code is: {reset_code}")
         msg["From"] = "ahuja.tushar.m@gmail.com"
@@ -64,7 +98,6 @@ def send_reset_email(receiver_email, reset_code):
             server.starttls(context=context)
             server.login("ahuja.tushar.m@gmail.com", "rkfunegfivnfvfuv")
             server.sendmail("ahuja.tushar.m@gmail.com", receiver_email, msg.as_string())
-
         return True
     except Exception as e:
         st.error(f"Failed to send reset email: {e}")
@@ -73,6 +106,9 @@ def send_reset_email(receiver_email, reset_code):
 # Initialize session state
 if "user" not in st.session_state:
     st.session_state["user"] = None
+
+if "captcha_text" not in st.session_state:
+    st.session_state["captcha_text"] = generate_captcha_text()
 
 if "reset_code" not in st.session_state:
     st.session_state["reset_code"] = None
@@ -90,8 +126,8 @@ with st.sidebar:
     else:
         selected_action = option_menu(
             menu_title="Navigation",
-            options=["Home", "Sign Up", "Login"],
-            icons=["house", "person-plus", "box-arrow-in-right"],
+            options=["Home", "Sign Up", "Login", "Forgot Password"],
+            icons=["house", "person-plus", "box-arrow-in-right", "key"],
             default_index=0,
         )
 
@@ -105,94 +141,92 @@ if not st.session_state["user"]:
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
             confirm_password = st.text_input("Confirm Password", type="password")
+            captcha_text = st.session_state["captcha_text"]
+            captcha_image = generate_captcha_image(captcha_text)
+            st.image(captcha_image, caption="Enter the CAPTCHA text below", use_container_width=False)
+            captcha_input = st.text_input("Enter CAPTCHA")
 
             if st.form_submit_button("Sign Up"):
-                if not name or not username or not email or not password or not confirm_password:
-                    st.error("All fields are required. Please fill in every field.")
+                if not all([name, username, email, password, confirm_password]):
+                    st.error("All fields are required.")
                 elif password != confirm_password:
-                    st.error("Passwords do not match. Please try again.")
+                    st.error("Passwords do not match.")
+                elif captcha_input != captcha_text:
+                    st.error("Incorrect CAPTCHA. Please try again.")
+                    st.rerun()
+                    st.session_state["captcha_text"] = generate_captcha_text()
                 else:
-                    hashed_password = hash_password(password)
                     try:
+                        hashed_password = hash_password(password)
                         users_cur.execute('''
                         INSERT INTO users (name, username, email, password)
-                        VALUES (?, ?, ?, ?)
-                        ''', (name, username, email, hashed_password))
+                        VALUES (?, ?, ?, ?)''', (name, username, email, hashed_password))
                         users_conn.commit()
                         st.success("Account created successfully! Please log in.")
                     except sqlite3.IntegrityError:
-                        st.error("Username already exists. Please choose another.")
+                        st.error("Username already exists.")
 
     elif selected_action == "Login":
         st.header("Login to Your Account")
         with st.form("login_form", clear_on_submit=True):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
+            captcha_text = st.session_state["captcha_text"]
+            captcha_image = generate_captcha_image(captcha_text)
+            st.image(captcha_image, caption="Enter the CAPTCHA text below", use_container_width=False)
+            captcha_input = st.text_input("Enter CAPTCHA")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                login_btn = st.form_submit_button("Login")
-            with col2:
-                forgot_password_btn = st.form_submit_button("Forgot Password")
-
-            # Handle Login
-            if login_btn:
-                users_cur.execute('''
-                SELECT name, username, password FROM users WHERE username = ?
-                ''', (username,))
-                user = users_cur.fetchone()
-                if user and check_password(password, user[2]):
-                    st.session_state["user"] = user[0]
-                    st.session_state["username"] = user[1]
-                    st.success(f"Welcome back, {user[0]}!")
+            if st.form_submit_button("Login"):
+                if captcha_input != captcha_text:
+                    st.error("Incorrect CAPTCHA.")
                     st.rerun()
                 else:
-                    st.error("Invalid username or password.")
-
-            # Handle Forgot Password
-            if forgot_password_btn:
-                users_cur.execute("SELECT email FROM users WHERE username = ?", (username,))
-                user_email = users_cur.fetchone()
-
-                if user_email:
-                    user_email = user_email[0]
-                    reset_code = generate_reset_code()
-                    st.session_state["reset_code"] = reset_code
-                    st.session_state["reset_username"] = username
-
-                    if send_reset_email(user_email, reset_code):
-                        st.success(f"A password reset code has been sent to {user_email}.")
+                    users_cur.execute("SELECT name, username, password FROM users WHERE username = ?", (username,))
+                    user = users_cur.fetchone()
+                    if user and check_password(password, user[2]):
+                        st.session_state["user"] = user[0]
+                        st.session_state["username"] = user[1]
+                        st.success(f"Welcome back, {user[0]}!")
+                        st.rerun()
                     else:
-                        st.error("Failed to send password reset email.")
+                        st.error("Invalid username or password.")
+
+    elif selected_action == "Forgot Password":
+        st.header("Forgot Password")
+        with st.form("forgot_password_form"):
+            username = st.text_input("Enter your username")
+            captcha_text = st.session_state["captcha_text"]
+            captcha_image = generate_captcha_image(captcha_text)
+            st.image(captcha_image, caption="Enter the CAPTCHA text below", use_container_width=False)
+            captcha_input = st.text_input("Enter CAPTCHA")
+
+            submit_forgot_password = st.form_submit_button("Submit")
+            if submit_forgot_password:
+                if captcha_input != captcha_text:
+                    st.error("Incorrect CAPTCHA.")
+                    st.rerun()
                 else:
-                    st.error("Username not found. Please check and try again.")
-
-        # If reset code has been sent
-        if st.session_state["reset_code"]:
-            st.subheader("Reset Your Password")
-            entered_code = st.text_input("Enter the reset code sent to your email")
-            new_password = st.text_input("New Password", type="password")
-            confirm_new_password = st.text_input("Confirm New Password", type="password")
-
-            if st.button("Verify and Reset Password"):
-                if entered_code == st.session_state["reset_code"]:
-                    if new_password and new_password == confirm_new_password:
-                        hashed_password = hash_password(new_password)
-                        users_cur.execute(
-                            "UPDATE users SET password = ? WHERE username = ?",
-                            (hashed_password, st.session_state["reset_username"]),
-                        )
-                        users_conn.commit()
-                        st.success("Your password has been reset successfully! Please log in.")
-                        del st.session_state["reset_code"]
-                        del st.session_state["reset_username"]
+                    users_cur.execute("SELECT email FROM users WHERE username = ?", (username,))
+                    user_email = users_cur.fetchone()
+                    if user_email:
+                        reset_code = generate_reset_code()
+                        st.session_state["reset_code"] = reset_code
+                        st.session_state["reset_username"] = username
+                        if send_reset_email(user_email[0], reset_code):
+                            st.success(f"Password reset code sent to {user_email[0]}.")
                     else:
-                        st.error("Passwords do not match. Please try again.")
-                else:
-                    st.error("Invalid reset code. Please check your email and try again.")
-
+                        st.error("Username not found.")
     else:
         st.header("Welcome to ExpenseTrade")
+        st.write("**ExpenseTrade** is your all-in-one solution for tracking your expenses and optimizing your savings. Here's what we offer:")
+        st.markdown("""
+        - **Expense Tracking**: Easily log and monitor your daily, weekly, and monthly expenses.
+        - **Income Management**: Add and categorize income sources for better financial planning.
+        - **Stock Suggestions**: Get personalized stock recommendations based on your savings patterns.
+        - **Data Visualization**: Analyze income and expense trends through visually appealing charts.
+        - **Secure Platform**: Rest assured, your data is safe and confidential with us.
+        """)
+        st.divider()
         st.write("Use the navigation menu on the left to sign up or log in.")
 
 else:
@@ -271,8 +305,8 @@ else:
             barmode="stack",
             labels={"value": "Amount (INR)", "variable": "Type", "Month": "Month"},
         )
-        fig4.update_layout(xaxis_title="Month", yaxis_title="Total Amount (INR)", template="plotly_dark")
-        
+        fig4.update_layout(xaxis_title="Month", yaxis_title="Total Amount (INR)", template='plotly_dark')
+
         # Layout for the charts: Using columns to split them nicely
         col1, col2 = st.columns(2)
 
