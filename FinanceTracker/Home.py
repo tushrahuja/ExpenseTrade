@@ -214,6 +214,22 @@ if not st.session_state["user"]:
                         st.session_state["reset_username"] = username
                         if send_reset_email(user_email[0], reset_code):
                             st.success(f"Password reset code sent to {user_email[0]}.")
+                            st.header("Reset Your Password")
+                            reset_code = st.text_input("Enter the reset code sent to your email")
+                            new_password = st.text_input("Enter your new password", type="password")
+                            confirm_password = st.text_input("Confirm your new password", type="password")
+
+                            if st.form_submit_button("Reset Password"):
+                                if reset_code == st.session_state["reset_code"] and new_password == confirm_password:
+                                    hashed_password = hash_password(new_password)
+                                    users_cur.execute(
+                                        "UPDATE users SET password = ? WHERE username = ?",
+                                        (hashed_password, username),
+                                    )
+                                    users_conn.commit()
+                                    st.success("Password reset successful! You can now log in.")
+                                else:
+                                    st.error("Invalid reset code or password mismatch.")
                     else:
                         st.error("Username not found.")
     else:
