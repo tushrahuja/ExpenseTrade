@@ -1,7 +1,0 @@
-*.db-shm
-*.db-wal
-*.sqbpro
-*.DS_Store
-__pycache__/
-*.pyc
-.streamlit/secrets.toml
