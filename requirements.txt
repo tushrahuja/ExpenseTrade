@@ -90,7 +90,6 @@ PyQt5-Qt5==5.15.2
 PyQt5_sip==12.15.0
 python-dateutil==2.8.2
 pytz==2023.3.post1
-pywin32==308
 PyYAML==6.0.2
 pyzmq==26.2.0
 ratelim==0.1.6
