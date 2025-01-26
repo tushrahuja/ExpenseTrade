@@ -253,7 +253,7 @@ if not st.session_state["user"]:
         st.write("Use the navigation menu on the left to sign up or log in.")
 
 else:
-    st.header(f"Welcome, {st.session_state['user']}!")
+    st.title(f"Welcome, {st.session_state['user']}!")
     st.header("This is your Dashboard!")
     st.divider()
 
