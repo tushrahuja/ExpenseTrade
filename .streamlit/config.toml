@@ -4,15 +4,3 @@ backgroundColor = "#F5F5F5"
 secondaryBackgroundColor = "#FFFFFF"
 textColor = "#262730"
 font = "sans serif"
-
-[server]
-headless = true
-
-[browser]
-gatherUsageStats = false
-
-[ui]
-hideStreamlitMark = false
-
-[ui]
-hide_menu_items = "Deploy this app"
