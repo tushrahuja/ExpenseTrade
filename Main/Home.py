@@ -200,45 +200,63 @@ if not st.session_state["user"]:
 
     elif selected_action == "Forgot Password":
         st.header("Forgot Password")
-        with st.form("forgot_password_form"):
-            username = st.text_input("Enter your username")
-            captcha_text = st.session_state["captcha_text"]
-            captcha_image = generate_captcha_image(captcha_text)
-            st.image(captcha_image, caption="Enter the CAPTCHA text below", use_container_width=False)
-            captcha_input = st.text_input("Enter CAPTCHA")
+        
+        if st.session_state.get("reset_code") is None:
+            with st.form("forgot_password_form"):
+                username = st.text_input("Enter your username")
+                captcha_text = st.session_state["captcha_text"]
+                captcha_image = generate_captcha_image(captcha_text)
+                st.image(captcha_image, caption="Enter the CAPTCHA text below", use_container_width=False)
+                captcha_input = st.text_input("Enter CAPTCHA")
 
-            submit_forgot_password = st.form_submit_button("Submit")
-            if submit_forgot_password:
-                if captcha_input != captcha_text:
-                    st.error("Incorrect CAPTCHA.")
-                    st.rerun()
-                else:
-                    users_cur.execute("SELECT email FROM users WHERE username = ?", (username,))
-                    user_email = users_cur.fetchone()
-                    if user_email:
-                        reset_code = generate_reset_code()
-                        st.session_state["reset_code"] = reset_code
-                        st.session_state["reset_username"] = username
-                        if send_reset_email(user_email[0], reset_code):
-                            st.success(f"Password reset code sent to {user_email[0]}.")
-                            st.header("Reset Your Password")
-                            reset_code = st.text_input("Enter the reset code sent to your email")
-                            new_password = st.text_input("Enter your new password", type="password")
-                            confirm_password = st.text_input("Confirm your new password", type="password")
-
-                            if st.form_submit_button("Reset Password"):
-                                if reset_code == st.session_state["reset_code"] and new_password == confirm_password:
-                                    hashed_password = hash_password(new_password)
-                                    users_cur.execute(
-                                        "UPDATE users SET password = ? WHERE username = ?",
-                                        (hashed_password, username),
-                                    )
-                                    users_conn.commit()
-                                    st.success("Password reset successful! You can now log in.")
-                                else:
-                                    st.error("Invalid reset code or password mismatch.")
+                submit_forgot_password = st.form_submit_button("Submit")
+                if submit_forgot_password:
+                    if captcha_input != captcha_text:
+                        st.error("Incorrect CAPTCHA. Please try again.")
+                        st.session_state["reset_captcha"] = True  
+                        st.rerun()  
                     else:
-                        st.error("Username not found.")
+                        users_cur.execute("SELECT email FROM users WHERE username = ?", (username,))
+                        user_email = users_cur.fetchone()
+                        if user_email:
+                            reset_code = generate_reset_code()
+                            st.session_state["reset_code"] = reset_code
+                            st.session_state["reset_username"] = username
+                            if send_reset_email(user_email[0], reset_code):
+                                st.success(f"Password reset code sent to {user_email[0]}.")
+                                st.session_state["reset_stage"] = "enter_code"  
+                                st.rerun()
+                            else:
+                                st.error("Failed to send reset email. Please try again.")
+                        else:
+                            st.error("Username not found.")
+
+        elif st.session_state.get("password_reset_success"):
+            st.success("Password reset successful! You can now log in.")
+            
+        elif st.session_state.get("reset_stage") == "enter_code":
+            with st.form("reset_password_form"):
+                reset_code_input = st.text_input("Enter the reset code sent to your email")
+                new_password = st.text_input("Enter your new password", type="password")
+                confirm_password = st.text_input("Confirm your new password", type="password")
+
+                if st.form_submit_button("Reset Password"):
+                    if reset_code_input != st.session_state["reset_code"]:
+                        st.error("Invalid reset code.")
+                    elif new_password != confirm_password:
+                        st.error("Passwords do not match.")
+                    else:
+                        hashed_password = hash_password(new_password)
+                        users_cur.execute(
+                            "UPDATE users SET password = ? WHERE username = ?",
+                            (hashed_password, st.session_state["reset_username"]),
+                        )
+                        users_conn.commit()
+
+                        st.session_state["password_reset_success"] = True
+                        st.rerun()
+
+
     else:
         st.header("Welcome to ExpenseTrade")
         st.write("**ExpenseTrade** is your all-in-one solution for tracking your expenses and optimizing your savings. Here's what we offer:")
