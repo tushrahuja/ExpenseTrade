@@ -325,7 +325,7 @@ with tab4:
                 st.plotly_chart(fig)
 
                 # Display forecast summary
-                st.write(f"Based on historical data, the price of {selected_stock} is predicted to be ₹{forecast['yhat'].iloc[-1]:.2f} in next few months.")
+                st.subheader(f"Based on historical data, the price of {selected_stock} is predicted to be ₹{forecast['yhat'].iloc[-1]:.2f} in next few months.")
             else:
                 st.warning("No historical data available for this stock.")
     else:
