@@ -5,12 +5,6 @@ Welcome to **ExpenseTrade**, your all-in-one solution for managing your finances
 
 ---
 
-## 🚧 **Project Status: Work in Progress** 🚧
-
-ExpenseTrade is under active development! While we’ve implemented core features, we’re continuing to improve and expand the platform to deliver an even better experience for our users.
-
----
-
 ### ✅ **Features Implemented**
 1. **User Authentication** 🔒  
    Secure registration, login, and password reset with CAPTCHA validation and email integration.  
